@@ -233,5 +233,3 @@ def package_outputs(output_dir: str) -> bytes:
         tar.add(output_dir, arcname=output_dir)
 
     return tar_buffer.getvalue()
-
-# run in command line: modal run boltz1.py --args="--use_msa_server"

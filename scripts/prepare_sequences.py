@@ -2,7 +2,7 @@
 
 import os
 
-# Create data directory if it doesn't exist
+# create data directory if it doesn't exist
 data_dir = "data/boltz/fasta"
 os.makedirs(data_dir, exist_ok=True)
 
