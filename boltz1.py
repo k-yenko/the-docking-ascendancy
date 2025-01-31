@@ -48,13 +48,13 @@ app = modal.App(name="example-boltz1-inference")
 
 @app.local_entrypoint()
 def main(
-    force_download: bool = False, input_yaml_path: str = None, args: str = ""
+    force_download: bool = False, input_yaml_path: str = None, args: str = "--use_msa_server"
 ):
     print("🧬 loading model remotely")
     download_model.remote(force_download)
 
     if input_yaml_path is None:
-        input_yaml_path = here / "data" / "boltz1_ligand.yaml"
+        input_yaml_path = here / "data" / "jak1_rinvoq.yaml"
     input_yaml = input_yaml_path.read_text()
 
     msas = find_msas(input_yaml_path)
@@ -62,7 +62,7 @@ def main(
     print(f"🧬 running boltz with input from {input_yaml_path}")
     output = boltz1_inference.remote(input_yaml, msas)
 
-    output_path = Path("/tmp") / "boltz1" / "boltz1_result.tar.gz"
+    output_path = here / "boltz_outputs" / "boltz1_result.tar.gz"
     output_path.parent.mkdir(exist_ok=True, parents=True)
     print(f"🧬 writing output to {output_path}")
     output_path.write_bytes(output)
@@ -119,7 +119,9 @@ models_dir = Path("/models/boltz1")
     gpu="H100",
 )
 def boltz1_inference(
-    boltz_input_yaml: str, msas: list["MSA"], args=""
+    boltz_input_yaml: str, 
+    msas: list["MSA"], 
+    args: str = "--use_msa_server"
 ) -> bytes:
     import shlex
     import subprocess
