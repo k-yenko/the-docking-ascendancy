@@ -1,12 +1,11 @@
-import modal
+from dataclasses import dataclass
 from pathlib import Path
-import sys
-import streamlit as st
+import modal
 
-MINUTES = 60  # seconds
+MINUTES = 60
 app = modal.App(name="boltz1-prediction")
 
-# Set up the image with required dependencies
+# Set up image with dependencies
 image = modal.Image.debian_slim(python_version="3.12").run_commands(
     "uv pip install --system --compile-bytecode boltz==0.3.2 biopython"
 )
@@ -17,28 +16,32 @@ boltz_model_volume = modal.Volume.from_name(
 )
 models_dir = Path("/models/boltz1")
 
-def extract_sequences_from_pdb(pdb_path: str):
-    """Extract sequences from PDB file using BioPython"""
-    from Bio import PDB
-    from Bio.PDB.Polypeptide import three_to_one
+@dataclass
+class MSA:
+    data: str
+    path: Path
 
-    parser = PDB.PDBParser()
-    structure = parser.get_structure('structure', pdb_path)
+def create_yaml_content(pdb_path: str) -> str:
+    """Create YAML content for Boltz prediction - runs locally"""
+    pdb_path = Path(pdb_path)
+    stats_file = pdb_path.parent.parent / "final_design_stats.csv"
+    df = pd.read_csv(stats_file)
+    binder_sequence = df.iloc[0]['Sequence']
     
-    sequences = {}
-    for model in structure:
-        for chain in model:
-            seq = ""
-            for residue in chain:
-                if PDB.is_aa(residue):
-                    try:
-                        seq += three_to_one(residue.get_resname())
-                    except:
-                        seq += 'X'
-            if seq:  # Only store non-empty sequences
-                sequences[chain.id] = seq
+    yaml_content = {
+        "version": 1,
+        "sequences": [
+            {
+                "protein": {
+                    "sequence": binder_sequence,
+                    "pdb": str(pdb_path),
+                    "chain": "B"
+                }
+            }
+        ]
+    }
     
-    return sequences
+    return yaml.dump(yaml_content, sort_keys=False)
 
 @app.function(
     image=image,
@@ -46,60 +49,41 @@ def extract_sequences_from_pdb(pdb_path: str):
     timeout=10 * MINUTES,
     gpu="H100",
 )
-def run_boltz_prediction(pdb_path: str):
+def boltz1_inference(yaml_content: str, pdb_path: str, args: str = "--use_msa_server") -> bytes:
+    """Runs on Modal"""
     import shlex
     import subprocess
-    import yaml
     from pathlib import Path
-    import os
     
-    # Create a working directory
-    work_dir = Path("work_dir")
-    work_dir.mkdir(exist_ok=True)
+    # Write YAML file
+    input_path = Path("input.yaml")
+    input_path.write_text(yaml_content)
     
-    # Extract sequences from PDB
-    sequences = extract_sequences_from_pdb(pdb_path)
-    
-    # Determine which sequence is the binder (usually shorter)
-    # and which is the target (usually longer)
-    seq_lengths = {chain_id: len(seq) for chain_id, seq in sequences.items()}
-    binder_chain = min(seq_lengths, key=seq_lengths.get)
-    target_chain = max(seq_lengths, key=seq_lengths.get)
-    
-    # Create YAML input
-    input_yaml = {
-        "sequences": [
-            {
-                "protein": {
-                    "sequence": sequences[target_chain],
-                    "name": "target"
-                }
-            },
-            {
-                "protein": {
-                    "sequence": sequences[binder_chain],
-                    "name": "binder",
-                    "pdb": str(pdb_path),
-                    "chain": binder_chain
-                }
-            }
-        ]
-    }
-    
-    input_path = work_dir / "input.yaml"
-    with open(input_path, 'w') as f:
-        yaml.dump(input_yaml, f)
-    
-    # Run Boltz prediction
-    args = ["--use_msa_server"]
-    subprocess.run(
-        ["boltz", "predict", str(input_path), "--cache", str(models_dir)] + args,
-        check=True,
-        cwd=work_dir
+    # Print YAML content for debugging
+    print("YAML content:")
+    print(yaml_content)
+
+    args = shlex.split(args)
+
+    print(f"🧬 predicting structure using boltz model from {models_dir}")
+    try:
+        # Capture output and error
+        result = subprocess.run(
+            ["boltz", "predict", input_path, "--cache", str(models_dir)] + args,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        print("Command output:", result.stdout)
+    except subprocess.CalledProcessError as e:
+        print("Command failed with error:", e.stderr)
+        raise
+
+    print("🧬 packaging up outputs")
+    output_bytes = package_outputs(
+        f"boltz_results_{input_path.with_suffix('').name}"
     )
-    
-    # Package and return results
-    output_bytes = package_outputs(str(work_dir))
+
     return output_bytes
 
 def package_outputs(output_dir: str) -> bytes:
@@ -111,44 +95,21 @@ def package_outputs(output_dir: str) -> bytes:
         tar.add(output_dir, arcname=output_dir)
     return tar_buffer.getvalue()
 
-def get_pdb_path(run_id: str, design_name: str) -> Path:
-    """
-    Get the path to the PDB file for a specific design
-    
-    Args:
-        run_id (str): The BindCraft run ID (e.g., "2501290927")
-        design_name (str): Name of the design
-        
-    Returns:
-        Path: Path to the PDB file
-    """
-    pdb_path = Path("bindcraft") / run_id / "Accepted" / f"{design_name}.pdb"
-    
-    if not pdb_path.exists():
-        raise FileNotFoundError(f"PDB file not found for design {design_name} in run {run_id}")
-    
-    return pdb_path
-
 def predict_structure(run_id: str, design_name: str):
-    """
-    Run Boltz-1 prediction for a specific design
-    
-    Args:
-        run_id (str): The BindCraft run ID (e.g., "2501290927")
-        design_name (str): Name of the design
-    
-    Returns:
-        dict: Prediction results
-    """
-    # Get PDB file path - use the path that was stored in the binder object
+    """Run Boltz-1 prediction for a specific design - runs locally"""
+    # Get PDB file path locally
     if 'pdb_path' in st.session_state.selected_binder:
         pdb_path = Path(st.session_state.selected_binder['pdb_path'])
     else:
-        # Fallback to constructing the path
-        pdb_path = get_pdb_path(run_id, design_name)
+        pdb_path = Path("bindcraft") / run_id / "Accepted" / f"{design_name}.pdb"
+        if not pdb_path.exists():
+            raise FileNotFoundError(f"PDB file not found for design {design_name} in run {run_id}")
     
-    # Run prediction
+    # Create YAML content locally
+    yaml_content = create_yaml_content(str(pdb_path))
+    
+    # Run prediction remotely
     with app.run():
-        result = run_boltz_prediction(str(pdb_path))
+        result = boltz1_inference.remote(yaml_content, str(pdb_path))
     
     return result

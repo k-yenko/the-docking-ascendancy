@@ -10,7 +10,7 @@ from streamlit_app.utils.prediction_utils import (
     run_chai_prediction,
     run_af3_prediction
 )
-from streamlit_app.utils.boltz_predictor import predict_structure
+from streamlit_app.utils.boltz_interface import predict_structure
 
 def structure_prediction_page():
     st.title("Step 3: Structure Prediction")
