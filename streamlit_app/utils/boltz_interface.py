@@ -4,7 +4,7 @@ import yaml
 from pathlib import Path
 from Bio import PDB
 from Bio.PDB.Polypeptide import protein_letters_3to1
-from .boltz_predictor import app, boltz1_inference
+from .boltz_predictor import app, boltz1_inference, predict_structure
 
 def extract_sequences_from_pdb(pdb_path: str):
     """Extract sequences from PDB file"""
@@ -34,30 +34,20 @@ def create_yaml_content(pdb_path: str) -> str:
     # Extract sequences from PDB
     sequences = extract_sequences_from_pdb(pdb_path)
     
-    # In PDB, typically:
-    # Chain A is the target protein
-    # Chain B is the binder
-    target_sequence = sequences.get('A', '')
+    # Get binder sequence
     binder_sequence = sequences.get('B', '')
+    if not binder_sequence:
+        raise ValueError("Could not extract binder sequence from PDB")
     
-    if not target_sequence or not binder_sequence:
-        raise ValueError("Could not extract both sequences from PDB")
-    
+    # Create minimal YAML
     yaml_content = {
         "version": 1,
         "sequences": [
             {
                 "protein": {
-                    "id": ["A"],
-                    "sequence": target_sequence,
-                    "name": "target"
-                }
-            },
-            {
-                "protein": {
-                    "id": ["B"],
                     "sequence": binder_sequence,
-                    "name": "binder"
+                    "pdb": "input.pdb",
+                    "chain": "B"
                 }
             }
         ]
@@ -67,19 +57,43 @@ def create_yaml_content(pdb_path: str) -> str:
 
 def predict_structure(run_id: str, design_name: str):
     """Run Boltz-1 prediction for a specific design - runs locally"""
-    # Get PDB file path locally
-    if 'pdb_path' in st.session_state.selected_binder:
-        pdb_path = Path(st.session_state.selected_binder['pdb_path'])
-    else:
-        pdb_path = Path("bindcraft") / run_id / "Accepted" / f"{design_name}.pdb"
-        if not pdb_path.exists():
-            raise FileNotFoundError(f"PDB file not found for design {design_name} in run {run_id}")
-    
-    # Create YAML content locally
-    yaml_content = create_yaml_content(str(pdb_path))
-    
-    # Run prediction remotely
-    with app.run():
-        result = boltz1_inference.remote(yaml_content, str(pdb_path))
-    
-    return result 
+    try:
+        # Get PDB file path locally
+        if 'pdb_path' in st.session_state.selected_binder:
+            pdb_path = Path(st.session_state.selected_binder['pdb_path'])
+        else:
+            pdb_path = Path("bindcraft") / run_id / "Accepted" / f"{design_name}.pdb"
+            if not pdb_path.exists():
+                raise FileNotFoundError(f"PDB file not found for design {design_name} in run {run_id}")
+        
+        # Read PDB file as bytes
+        pdb_content = pdb_path.read_bytes()
+        
+        # Create YAML content locally
+        yaml_content = create_yaml_content(str(pdb_path))
+        
+        # Run prediction remotely
+        with app.run():
+            result = boltz1_inference.remote(yaml_content, pdb_content)  # Pass bytes instead of string
+        
+        return result
+        
+    except Exception as e:
+        st.error(str(e))
+        return None
+
+def run_boltz_prediction(binder):
+    """Run Boltz-1 prediction for a specific binder"""
+    try:
+        run_id = binder.get('run_id')
+        design_name = binder.get('design_name')
+        
+        if not run_id or not design_name:
+            raise ValueError("Missing run ID or design name for selected binder")
+        
+        result = predict_structure(run_id, design_name)
+        return result
+        
+    except Exception as e:
+        st.error(f"Error in Boltz prediction: {str(e)}")
+        return None 

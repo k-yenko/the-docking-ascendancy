@@ -17,8 +17,7 @@ def structure_prediction_page():
 
     if 'selected_binder' not in st.session_state:
         st.error("Please select a binder design first")
-        st.button("Go back to binder selection", 
-                 on_click=lambda: st.switch_page("pages/02_binder_gallery.py"))
+        st.switch_page("pages/02_binder_gallery.py")
         return
 
     # Display selected binder info
@@ -26,7 +25,6 @@ def structure_prediction_page():
     binder = st.session_state.selected_binder
     col1, col2 = st.columns([1, 2])
     with col1:
-        # Display structure preview of selected binder
         st.write("Preview:")
         # Add structure preview here
     with col2:
@@ -39,10 +37,10 @@ def structure_prediction_page():
     methods = {
         'Boltz-1': {
             'selected': st.checkbox('Boltz-1', value=True),
-            'options': {}  # Removed MSA server option since it's always required
+            'options': {}
         },
         'Chai-1': {
-            'selected': st.checkbox('ChAI-1'),
+            'selected': st.checkbox('Chai-1'),
             'options': {}
         },
         'AlphaFold3': {
@@ -52,9 +50,6 @@ def structure_prediction_page():
     }
 
     if st.button("Run Selected Predictions"):
-        if 'prediction_results' not in st.session_state:
-            st.session_state.prediction_results = {}
-            
         predictions_made = False
         
         for method, config in methods.items():
@@ -62,39 +57,52 @@ def structure_prediction_page():
                 with st.spinner(f"Running {method}..."):
                     try:
                         if method == 'Boltz-1':
-                            # Get run_id and design_name from the selected binder
-                            run_id = binder.get('run_id')
-                            design_name = binder.get('design_name')
-                            
-                            if not run_id or not design_name:
-                                raise ValueError("Missing run ID or design name for selected binder")
-                            
-                            result = predict_structure(run_id, design_name)
-                            if result:
-                                st.session_state.prediction_results[method] = result
+                            if run_prediction():
                                 predictions_made = True
-                                st.success(f"{method} prediction completed!")
                         elif method == 'ChAI-1':
                             result = run_chai_prediction(binder)
                             if result:
                                 st.session_state.prediction_results[method] = result
                                 predictions_made = True
-                                st.success(f"{method} prediction completed!")
                         elif method == 'AlphaFold3':
                             result = run_af3_prediction(binder)
                             if result:
                                 st.session_state.prediction_results[method] = result
                                 predictions_made = True
-                                st.success(f"{method} prediction completed!")
                             
                     except Exception as e:
                         st.error(f"Error in {method}: {str(e)}")
 
         if predictions_made:
-            st.button(
-                "Continue to Results Dashboard",
-                on_click=lambda: st.switch_page("pages/04_results_dashboard.py")
-            )
+            st.write("Redirecting with results:", bool(st.session_state.prediction_results))
+            st.success("Predictions complete! Redirecting to results...")
+            st.switch_page("pages/04_results_dashboard.py")
+
+def run_prediction():
+    with st.spinner("Running Boltz-1 prediction..."):
+        try:
+            run_id = st.session_state.selected_binder['run_id']
+            design_name = st.session_state.selected_binder['design_name']
+            
+            # Run prediction and store result
+            result = predict_structure(run_id, design_name)
+            
+            if result is not None:
+                # Store the result
+                st.session_state["prediction_results"] = {
+                    "Boltz-1": result
+                }
+                st.write("Stored prediction result:", bool(st.session_state.prediction_results))
+                st.write("Result size:", len(result), "bytes")
+                return True
+            else:
+                st.error("No result from prediction")
+                return False
+                
+        except Exception as e:
+            st.error(f"Error in run_prediction: {str(e)}")
+            st.exception(e)
+            return False
 
 if __name__ == "__main__":
     structure_prediction_page() 
