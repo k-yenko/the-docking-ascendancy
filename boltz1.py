@@ -54,7 +54,7 @@ def main(
     download_model.remote(force_download)
 
     if input_yaml_path is None:
-        input_yaml_path = here / "data" / "jak1_rinvoq.yaml"
+        input_yaml_path = here / "test_input.yaml"
     input_yaml = input_yaml_path.read_text()
 
     msas = find_msas(input_yaml_path)

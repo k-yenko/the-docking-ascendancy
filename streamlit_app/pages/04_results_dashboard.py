@@ -41,27 +41,30 @@ def display_boltz_results(result_bytes):
         tar_buffer = io.BytesIO(result_bytes)
         
         with tarfile.open(fileobj=tar_buffer, mode='r:gz') as tar:
-            # Look for the CIF file
-            cif_path = "boltz_results/predictions/input/input_model_0.cif"
-            try:
-                cif_info = tar.getmember(cif_path)
-                cif_file = tar.extractfile(cif_info)
-                if cif_file is not None:
-                    cif_content = cif_file.read()
-                    st.write("### Predicted Structure")
-                    st_molstar(cif_content, key="structure_viewer")
-                    
-                    # Download button
-                    st.download_button(
-                        "Download Structure (CIF)",
-                        cif_content,
-                        file_name="prediction.cif",
-                        mime="chemical/x-cif"
-                    )
-            except KeyError:
-                st.error("Could not find predicted structure file")
-            except Exception as e:
-                st.error(f"Error displaying structure: {str(e)}")
+            # List all files in archive
+            st.write("Files in result:")
+            for member in tar.getmembers():
+                st.write(f"- {member.name}")
+            
+            # Look for CIF file
+            cif_files = [m for m in tar.getmembers() if m.name.endswith('.cif')]
+            if cif_files:
+                cif_file = cif_files[0]
+                st.write(f"Found CIF file: {cif_file.name}")
+                # Extract CIF content
+                cif_content = tar.extractfile(cif_file).read()
+                st.write("### Predicted Structure")
+                st_molstar(cif_content, key="structure_viewer")
+                
+                # Download button
+                st.download_button(
+                    "Download Structure (CIF)",
+                    cif_content,
+                    file_name="prediction.cif",
+                    mime="chemical/x-cif"
+                )
+            else:
+                raise ValueError("No CIF file found in prediction results")
     
     except Exception as e:
         st.error("Error processing prediction results")

@@ -5,17 +5,16 @@ import sys
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from streamlit_app.utils.prediction_utils import (
-    prepare_prediction_input,
+from streamlit_app.utils.boltz_predictor import predictor
+from streamlit_app.utils.other_predictors import (
     run_chai_prediction,
     run_af3_prediction
 )
-from streamlit_app.utils.boltz_interface import predict_structure
 
 def structure_prediction_page():
     st.title("Step 3: Structure Prediction")
 
-    if 'selected_binder' not in st.session_state:
+    if 'selected_binder' not in st.session_state:     
         st.error("Please select a binder design first")
         st.switch_page("pages/02_binder_gallery.py")
         return
@@ -84,16 +83,20 @@ def run_prediction():
             run_id = st.session_state.selected_binder['run_id']
             design_name = st.session_state.selected_binder['design_name']
             
-            # Run prediction and store result
-            result = predict_structure(run_id, design_name)
+            # Debug - show what we're sending
+            st.write("Running prediction for:")
+            st.write(f"- Run ID: {run_id}")
+            st.write(f"- Design: {design_name}")
+            
+            # Run prediction using the singleton predictor
+            result = predictor.predict_structure(run_id, design_name)
             
             if result is not None:
-                # Store the result
                 st.session_state["prediction_results"] = {
                     "Boltz-1": result
                 }
-                st.write("Stored prediction result:", bool(st.session_state.prediction_results))
-                st.write("Result size:", len(result), "bytes")
+                st.write("Prediction completed:")
+                st.write(f"- Result size: {len(result)} bytes")
                 return True
             else:
                 st.error("No result from prediction")
