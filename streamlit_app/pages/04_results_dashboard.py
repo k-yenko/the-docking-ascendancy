@@ -4,6 +4,7 @@ import sys
 import tarfile
 import io
 from streamlit_molstar import st_molstar
+from datetime import datetime
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
@@ -98,27 +99,45 @@ def compare_structures(results):
 def results_dashboard():
     st.title("Structure Prediction Results")
     
-    # Debug - check what's in session state
-    if st.checkbox("Debug"):
-        st.write("Session state:", {k: type(v) for k, v in st.session_state.items()})
-        if 'prediction_results' in st.session_state:
-            st.write("Prediction results:", {k: type(v) for k, v in st.session_state.prediction_results.items()})
-    
-    if 'prediction_results' not in st.session_state:
-        st.error("No prediction results found. Please run predictions first.")
-        st.button("Go back to Structure Prediction", 
-                 on_click=lambda: st.switch_page("pages/03_structure_prediction.py"))
+    if 'prediction_history' not in st.session_state:
+        st.info("No predictions available yet. Run some predictions first!")
         return
+        
+    # Create selection for viewing results
+    predictions = st.session_state.prediction_history
+    selected_pred = st.selectbox(
+        "Select prediction to view:",
+        options=list(predictions.keys()),
+        format_func=lambda x: f"{predictions[x]['design_name']} ({predictions[x]['timestamp']})"
+    )
     
-    # Display results for each method
-    for method, result in st.session_state.prediction_results.items():
-        st.header(f"{method} Results")
-        if method == "Boltz-1" and result is not None:
-            display_boltz_results(result)
-        elif method == "ChAI-1":
-            st.write("ChAI-1 results display not implemented yet")
-        elif method == "AlphaFold3":
-            st.write("AlphaFold3 results display not implemented yet")
+    if selected_pred:
+        pred_data = predictions[selected_pred]
+        
+        # Show metadata
+        st.subheader("Prediction Details")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("Design:", pred_data['design_name'])
+            st.write("Method:", pred_data['method'])
+        with col2:
+            st.write("Run ID:", pred_data['run_id'])
+            st.write("Time:", pred_data['timestamp'])
+            
+        # Show structure viewer
+        st.subheader("Structure Visualization")
+        cif_content = pred_data['cif_content']
+        
+        # Use st_molstar to display the structure
+        st_molstar(cif_content, key=f"molstar_{selected_pred}")
+        
+        # Add download button
+        st.download_button(
+            "Download Structure (CIF)",
+            cif_content,
+            file_name=f"{pred_data['design_name']}_prediction.cif",
+            mime="chemical/x-cif"
+        )
 
 if __name__ == "__main__":
     results_dashboard() 
