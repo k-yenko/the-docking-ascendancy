@@ -124,38 +124,47 @@ def results_dashboard():
         st.button("Go back to Structure Prediction", 
                  on_click=lambda: st.switch_page("pages/03_structure_prediction.py"))
         return
-        
-    # Create selection for viewing results
-    predictions = st.session_state.prediction_history
-    selected_pred = st.selectbox(
-        "Select prediction to view:",
-        options=list(predictions.keys()),
-        format_func=lambda x: f"{predictions[x]['design_name']} ({predictions[x]['method']}, {predictions[x]['timestamp']})"
-    )
     
-    if selected_pred:
-        pred_data = predictions[selected_pred]
+    # Group predictions by design name
+    predictions = st.session_state.prediction_history
+    design_predictions = {}
+    for pred_id, pred_data in predictions.items():
+        design_name = pred_data['design_name']
+        if design_name not in design_predictions:
+            design_predictions[design_name] = {}
+        design_predictions[design_name][pred_data['method']] = pred_data
+    
+    # Show all predictions for the design side by side
+    for design_name, methods in design_predictions.items():
+        st.header(f"Design: {design_name}")
         
-        # Show metadata
-        st.subheader("Prediction Details")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("Design:", pred_data['design_name'])
-            st.write("Method:", pred_data['method'])
-        with col2:
-            st.write("Run ID:", pred_data['run_id'])
-            st.write("Time:", pred_data['timestamp'])
-            
-        # Show structure viewer
-        st.subheader("Structure Visualization")
+        # Create columns for each prediction method
+        cols = st.columns(len(methods))
+        for i, (method, pred_data) in enumerate(methods.items()):
+            with cols[i]:
+                st.subheader(f"{method} Prediction")
+                st.write(f"Time: {pred_data['timestamp']}")
+                
+                # Create a temporary file to store CIF content
+                with tempfile.NamedTemporaryFile(suffix='.cif', mode='wb', delete=False) as tmp:
+                    tmp.write(pred_data['cif_content'])
+                    tmp_path = tmp.name
+                
+                # Use st_molstar with the file path
+                st_molstar(tmp_path, key=f"molstar_{method}_{design_name}")
+                
+                # Add download button
+                st.download_button(
+                    "Download Structure (CIF)",
+                    pred_data['cif_content'],
+                    file_name=f"{design_name}_{method}.cif",
+                    mime="chemical/x-cif"
+                )
         
-        # Create a temporary file to store CIF content
-        with tempfile.NamedTemporaryFile(suffix='.cif', mode='wb', delete=False) as tmp:
-            tmp.write(pred_data['cif_content'])
-            tmp_path = tmp.name
-        
-        # Use st_molstar with the file path
-        st_molstar(tmp_path, key=f"molstar_{selected_pred}")
+        # Add structure comparison tools here
+        st.subheader("Structure Comparison")
+        st.info("Structure alignment and comparison tools coming soon!")
+        # TODO: Add RMSD calculation, structure alignment, etc.
 
 if __name__ == "__main__":
     results_dashboard() 
