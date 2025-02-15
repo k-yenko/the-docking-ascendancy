@@ -119,8 +119,10 @@ def create_chimerax_script(cif_content, filename):
 def results_dashboard():
     st.title("Structure Prediction Results")
     
-    if 'prediction_history' not in st.session_state:
+    if 'prediction_history' not in st.session_state or not st.session_state.prediction_history:
         st.info("No predictions available yet. Run some predictions first!")
+        st.button("Go back to Structure Prediction", 
+                 on_click=lambda: st.switch_page("pages/03_structure_prediction.py"))
         return
         
     # Create selection for viewing results
@@ -128,7 +130,7 @@ def results_dashboard():
     selected_pred = st.selectbox(
         "Select prediction to view:",
         options=list(predictions.keys()),
-        format_func=lambda x: f"{predictions[x]['design_name']} ({predictions[x]['timestamp']})"
+        format_func=lambda x: f"{predictions[x]['design_name']} ({predictions[x]['method']}, {predictions[x]['timestamp']})"
     )
     
     if selected_pred:
@@ -154,14 +156,6 @@ def results_dashboard():
         
         # Use st_molstar with the file path
         st_molstar(tmp_path, key=f"molstar_{selected_pred}")
-        
-        # Add download button
-        st.download_button(
-            "Download Structure (CIF)",
-            pred_data['cif_content'],
-            file_name=f"{pred_data['design_name']}_prediction.cif",
-            mime="chemical/x-cif"
-        )
 
 if __name__ == "__main__":
     results_dashboard() 

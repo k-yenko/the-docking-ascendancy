@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 from streamlit_app.utils.boltz_predictor import predictor as boltz_predictor
 from streamlit_app.utils.chai1_predictor import predictor as chai1_predictor
+from datetime import datetime
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
@@ -49,24 +50,44 @@ def structure_prediction_page():
     if st.button("Run Selected Predictions"):
         try:
             results = {}
-            # Debug prints
             st.write("Selected binder:", st.session_state.selected_binder)
             run_id = st.session_state.selected_binder.get('run_id', '')
             design_name = st.session_state.selected_binder.get('design_name', '')
-            st.write(f"run_id: {run_id}")
-            st.write(f"design_name: {design_name}")
+            
+            # Clear previous prediction history
+            st.session_state.prediction_history = {}
             
             # Run predictions for each selected method
             for method in selected_methods:
                 if method == "Boltz-1":
                     with st.spinner("Running Boltz-1 prediction..."):
-                        results["Boltz-1"] = boltz_predictor.predict_structure(run_id, design_name)
+                        cif_content = boltz_predictor.predict_structure(run_id, design_name)
+                        if cif_content:
+                            prediction_id = f"{run_id}_{design_name}_boltz"
+                            st.session_state.prediction_history[prediction_id] = {
+                                'timestamp': datetime.now().isoformat(),
+                                'method': 'Boltz-1',
+                                'run_id': run_id,
+                                'design_name': design_name,
+                                'cif_content': cif_content
+                            }
+                            st.success("Boltz-1 prediction completed!")
+                
                 elif method == "Chai-1":
                     with st.spinner("Running Chai-1 prediction..."):
-                        results["Chai-1"] = chai1_predictor.predict_structure(run_id, design_name)
+                        cif_content = chai1_predictor.predict_structure(run_id, design_name)
+                        if cif_content:
+                            prediction_id = f"{run_id}_{design_name}_chai1"
+                            st.session_state.prediction_history[prediction_id] = {
+                                'timestamp': datetime.now().isoformat(),
+                                'method': 'Chai-1',
+                                'run_id': run_id,
+                                'design_name': design_name,
+                                'cif_content': cif_content
+                            }
+                            st.success("Chai-1 prediction completed!")
             
-            if results:
-                st.session_state.prediction_results = results
+            if st.session_state.prediction_history:
                 st.success("All selected predictions completed!")
                 st.switch_page("pages/04_results_dashboard.py")
                 
