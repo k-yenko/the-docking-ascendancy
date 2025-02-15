@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import tarfile
 import io
+import tempfile
 from streamlit_molstar import st_molstar
 from datetime import datetime
 
@@ -96,6 +97,25 @@ def compare_structures(results):
             st.write("Aligned Structures:")
             display_aligned_structures(pdb1, pdb2)
 
+def create_chimerax_script(cif_content, filename):
+    """Create a ChimeraX script to open and display the structure"""
+    # Save CIF content to a temporary file
+    temp_dir = Path("temp_structures")
+    temp_dir.mkdir(exist_ok=True)
+    cif_path = temp_dir / f"{filename}.cif"
+    cif_path.write_bytes(cif_content)
+    
+    # Create ChimeraX script
+    script = f"""
+    open {cif_path.absolute()}
+    cartoon
+    color bychain
+    """
+    script_path = temp_dir / f"{filename}.cxc"
+    script_path.write_text(script)
+    
+    return script_path
+
 def results_dashboard():
     st.title("Structure Prediction Results")
     
@@ -126,15 +146,19 @@ def results_dashboard():
             
         # Show structure viewer
         st.subheader("Structure Visualization")
-        cif_content = pred_data['cif_content']
         
-        # Use st_molstar to display the structure
-        st_molstar(cif_content, key=f"molstar_{selected_pred}")
+        # Create a temporary file to store CIF content
+        with tempfile.NamedTemporaryFile(suffix='.cif', mode='wb', delete=False) as tmp:
+            tmp.write(pred_data['cif_content'])
+            tmp_path = tmp.name
+        
+        # Use st_molstar with the file path
+        st_molstar(tmp_path, key=f"molstar_{selected_pred}")
         
         # Add download button
         st.download_button(
             "Download Structure (CIF)",
-            cif_content,
+            pred_data['cif_content'],
             file_name=f"{pred_data['design_name']}_prediction.cif",
             mime="chemical/x-cif"
         )

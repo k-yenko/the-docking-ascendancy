@@ -8,3 +8,4 @@ modal
 biopython
 streamlit-molstar
 pyyaml
+streamlit_molstar>=0.4.21
