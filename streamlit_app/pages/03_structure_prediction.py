@@ -1,15 +1,11 @@
 import streamlit as st
 from pathlib import Path
 import sys
+from streamlit_app.utils.boltz_predictor import predictor as boltz_predictor
+from streamlit_app.utils.chai1_predictor import predictor as chai1_predictor
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
-
-from streamlit_app.utils.boltz_predictor import predictor
-from streamlit_app.utils.other_predictors import (
-    run_chai_prediction,
-    run_af3_prediction
-)
 
 def structure_prediction_page():
     st.title("Step 3: Structure Prediction")
@@ -33,79 +29,50 @@ def structure_prediction_page():
     # Prediction method selection
     st.subheader("Select Prediction Methods")
     
-    methods = {
-        'Boltz-1': {
-            'selected': st.checkbox('Boltz-1', value=True),
-            'options': {}
-        },
-        'Chai-1': {
-            'selected': st.checkbox('Chai-1'),
-            'options': {}
-        },
-        'AlphaFold3': {
-            'selected': st.checkbox('AlphaFold3'),
-            'options': {}
-        }
-    }
+    selected_methods = []
+    
+    # Create checkboxes for each method
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.checkbox('Boltz-1'):
+            selected_methods.append("Boltz-1")
+    with col2:
+        if st.checkbox('Chai-1'):
+            selected_methods.append("Chai-1")
+    with col3:
+        st.checkbox('AlphaFold3', disabled=True, help="Coming soon!")
+
+    if not selected_methods:
+        st.warning("Please select at least one prediction method")
+        return
 
     if st.button("Run Selected Predictions"):
-        predictions_made = False
-        
-        for method, config in methods.items():
-            if config['selected']:
-                with st.spinner(f"Running {method}..."):
-                    try:
-                        if method == 'Boltz-1':
-                            if run_prediction():
-                                predictions_made = True
-                        elif method == 'ChAI-1':
-                            result = run_chai_prediction(binder)
-                            if result:
-                                st.session_state.prediction_results[method] = result
-                                predictions_made = True
-                        elif method == 'AlphaFold3':
-                            result = run_af3_prediction(binder)
-                            if result:
-                                st.session_state.prediction_results[method] = result
-                                predictions_made = True
-                            
-                    except Exception as e:
-                        st.error(f"Error in {method}: {str(e)}")
-
-        if predictions_made:
-            st.write("Redirecting with results:", bool(st.session_state.prediction_results))
-            st.success("Predictions complete! Redirecting to results...")
-            st.switch_page("pages/04_results_dashboard.py")
-
-def run_prediction():
-    with st.spinner("Running Boltz-1 prediction..."):
         try:
-            run_id = st.session_state.selected_binder['run_id']
-            design_name = st.session_state.selected_binder['design_name']
+            results = {}
+            # Debug prints
+            st.write("Selected binder:", st.session_state.selected_binder)
+            run_id = st.session_state.selected_binder.get('run_id', '')
+            design_name = st.session_state.selected_binder.get('design_name', '')
+            st.write(f"run_id: {run_id}")
+            st.write(f"design_name: {design_name}")
             
-            # Debug - show what we're sending
-            st.write("Running prediction for:")
-            st.write(f"- Run ID: {run_id}")
-            st.write(f"- Design: {design_name}")
+            # Run predictions for each selected method
+            for method in selected_methods:
+                if method == "Boltz-1":
+                    with st.spinner("Running Boltz-1 prediction..."):
+                        results["Boltz-1"] = boltz_predictor.predict_structure(run_id, design_name)
+                elif method == "Chai-1":
+                    with st.spinner("Running Chai-1 prediction..."):
+                        results["Chai-1"] = chai1_predictor.predict_structure(run_id, design_name)
             
-            # Run prediction using the singleton predictor
-            result = predictor.predict_structure(run_id, design_name)
-            
-            if result is not None:
-                st.session_state["prediction_results"] = {
-                    "Boltz-1": result
-                }
-                st.write("Prediction completed:")
-                st.write(f"- Result size: {len(result)} bytes")
-                return True
-            else:
-                st.error("No result from prediction")
-                return False
+            if results:
+                st.session_state.prediction_results = results
+                st.success("All selected predictions completed!")
+                st.switch_page("pages/04_results_dashboard.py")
                 
         except Exception as e:
-            st.error(f"Error in run_prediction: {str(e)}")
-            st.exception(e)
-            return False
+            st.error(f"Error in prediction: {str(e)}")
+            raise
 
 if __name__ == "__main__":
     structure_prediction_page() 

@@ -25,20 +25,25 @@ def get_bindcraft_runs(base_path):
 
 def load_binder_designs(run_id: str):
     """Load binder designs from a specific run"""
-    run_dir = Path("bindcraft") / run_id / "Accepted"
+    run_dir = Path("bindcraft") / run_id
+    stats_file = run_dir / "final_design_stats.csv"
+    
+    # Load sequences from stats file
+    df = pd.read_csv(stats_file)
+    sequences = df['Sequence'].tolist()
     
     # Get all PDB files in the Accepted directory
-    pdb_files = list(run_dir.glob("*.pdb"))
+    pdb_files = list((run_dir / "Accepted").glob("*.pdb"))
     designs = []
     
     for idx, pdb_file in enumerate(pdb_files):
-        design_name = pdb_file.stem  # Gets filename without .pdb extension
+        design_name = pdb_file.stem
         designs.append({
             'run_id': run_id,
             'design_name': design_name,
             'pdb_path': str(pdb_file),
-            'sequence': f"Sequence {idx+1}",  # Placeholder - can extract from PDB if needed
-            'score': f"Score {idx+1}",  # Placeholder - can read from stats if needed
+            'sequence': sequences[idx],  # Use actual sequence from CSV
+            'score': df.iloc[idx]['MPNN_score'] if 'MPNN_score' in df.columns else f"Score {idx+1}"
         })
     
     return designs
