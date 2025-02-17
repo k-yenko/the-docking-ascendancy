@@ -25,11 +25,22 @@ The Docking Ascendancy aims to host trials for protein-ligand pairs. The platfor
 🛠️ Technical
 - [x] Set up Streamlit interface
 - [x] Basic error handling
-- [ ] Add comprehensive testing
-- [ ] Improve performance & caching
 - [ ] Add pipeline logging
+
+📱 User Interface
+- [x] Create Streamlit web application
+- [x] Implement multi-page navigation
+- [x] Create protein input page
+- [x] Add structure prediction page
+- [ ] Add output/dashboard/analysis page
 
 📚 Documentation
 - [x] Basic README
+- [ ] Examples
 - [ ] Add installation guide
 - [ ] Document best practices
+
+🔮 Future Desires
+- [ ] Implement batch processing/prediction capabilities
+
+
