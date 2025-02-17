@@ -1,5 +1,5 @@
 # The Docking Ascendancy (wip)
-A platform for de novo binder assembly and structural optimization, starting with BindCraft for design, followed by comparative structure prediction using Boltz-1, Chai-1, and AlphaFold3. Future capabilities will enable molecular docking simulations and binding affinity analysis.
+A Modal-powered platform for binder assembly and structure prediction, deployed as an accessible web interface. Design binders with BindCraft, predict structures with Boltz-1, Chai-1 and AlphaFold3, and analyze results through interactive visualization and alignment tools.
 
 *Only the strongest ligands shall ascend.*
 
