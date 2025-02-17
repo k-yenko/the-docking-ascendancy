@@ -1,5 +1,5 @@
 # The Docking Ascendancy (wip)
-Predict protein-ligand complexes with Boltz-1 and optimize binders with BindCraft. Accelerate inference times and deploy molecular docking simulations in real-time
+A platform for de novo binder assembly and structural optimization, starting with BindCraft for design, followed by comparative structure prediction using Boltz-1, Chai-1, and AlphaFold3. Future capabilities will enable molecular docking simulations and binding affinity analysis.
 
 *Only the strongest ligands shall ascend.*
 
