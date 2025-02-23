@@ -42,5 +42,6 @@ The Docking Ascendancy aims to host trials for protein-ligand pairs. The platfor
 
 🔮 Future Desires
 - [ ] Implement batch processing/prediction capabilities
+- [ ] Can we add SFCalculator for structure refinement post-AF/Boltz/Chai? (https://www.biorxiv.org/content/10.1101/2025.01.12.632630v2.full.pdf)
 
 
