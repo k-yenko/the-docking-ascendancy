@@ -13,13 +13,13 @@ The Docking Ascendancy aims to host trials for protein-ligand pairs. The platfor
 - [x] Implement Chai-1 prediction
 - [ ] Add AlphaFold3 prediction
 - [ ] Integrate BindCraft assembly
-- [ ] Create multi-model comparison dashboard
+- [ ] Create comparison dashboard
 - [ ] Implement docking analysis
 
 🔍 Analysis Tools
 - [x] Basic structure visualization
 - [x] Structure alignment & RMSD
-- [ ] Add binding site analysis
+- [ ] Add binding site analysis (Use LigUnity?! https://www.biorxiv.org/content/10.1101/2025.02.17.638554v1)
 - [ ] Implement additional metrics (TM-score, GDT)
 
 🛠️ Technical
@@ -42,5 +42,6 @@ The Docking Ascendancy aims to host trials for protein-ligand pairs. The platfor
 
 🔮 Future Desires
 - [ ] Implement batch processing/prediction capabilities
+- [ ] Can we add SFCalculator for structure refinement post-AF/Boltz/Chai? (https://www.biorxiv.org/content/10.1101/2025.01.12.632630v2.full.pdf)
 
 
