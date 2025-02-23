@@ -1,0 +1,77 @@
+{
+    "name": "Hello fold",
+    "modelSeeds": [10, 42],
+    "sequences": [
+      {
+        "protein": {
+          "id": "A",
+          "sequence": "PVLSCGEWQL",
+          "modifications": [
+            {"ptmType": "HY3", "ptmPosition": 1},
+            {"ptmType": "P1L", "ptmPosition": 5}
+          ],
+          "unpairedMsa": ...,
+        }
+      },
+      {
+        "protein": {
+          "id": "B",
+          "sequence": "RPACQLW",
+          "templates": [
+            {
+              "mmcif": ...,
+              "queryIndices": [0, 1, 2, 4, 5, 6],
+              "templateIndices": [0, 1, 2, 3, 4, 8]
+            }
+          ]
+        }
+      },
+      {
+        "dna": {
+          "id": "C",
+          "sequence": "GACCTCT",
+          "modifications": [
+            {"modificationType": "6OG", "basePosition": 1},
+            {"modificationType": "6MA", "basePosition": 2}
+          ]
+        }
+      },
+      {
+        "rna": {
+          "id": "E",
+          "sequence": "AGCU",
+          "modifications": [
+            {"modificationType": "2MG", "basePosition": 1},
+            {"modificationType": "5MC", "basePosition": 4}
+          ],
+          "unpairedMsa": ...
+        }
+      },
+      {
+        "ligand": {
+          "id": ["F", "G", "H"],
+          "ccdCodes": ["ATP"]
+        }
+      },
+      {
+        "ligand": {
+          "id": "I",
+          "ccdCodes": ["NAG", "FUC"]
+        }
+      },
+      {
+        "ligand": {
+          "id": "Z",
+          "smiles": "CC(=O)OC1C[NH+]2CCC1CC2"
+        }
+      }
+    ],
+    "bondedAtomPairs": [
+      [["A", 1, "CA"], ["G", 1, "CHA"]],
+      [["I", 1, "O6"], ["I", 2, "C1"]]
+    ],
+    "userCCD": ...,
+    "dialect": "alphafold3",
+    "version": 2
+  }
+  

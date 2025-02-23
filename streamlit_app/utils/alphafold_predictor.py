@@ -79,26 +79,49 @@ def predict_structure(input_json: str):
                 
     return results
 
-def prepare_af3_input(sequence: str, name: str = "query") -> str:
+def prepare_af3_input(
+    sequence: str,
+    name: str = "query",
+    modifications: list = None,
+    templates: list = None,
+    model_seeds: list = None,
+    unpaired_msa: str = None
+) -> str:
     """
     Prepare input JSON for AF3 in the required format
     
     Args:
         sequence: Protein sequence
         name: Name for the prediction job
+        modifications: List of protein modifications, each with ptmType and ptmPosition
+        templates: List of template structures with mmcif and residue mappings
+        model_seeds: List of random seeds for prediction (default: [42])
+        unpaired_msa: Optional MSA in A3M format
         
     Returns:
         JSON string formatted for AF3
     """
+    protein_dict = {
+        "id": "A",
+        "sequence": sequence,
+    }
+    
+    # Add optional fields if provided
+    if modifications:
+        protein_dict["modifications"] = modifications
+        
+    if templates:
+        protein_dict["templates"] = templates
+        
+    if unpaired_msa is not None:
+        protein_dict["unpairedMsa"] = unpaired_msa
+    
     input_json = {
         "name": name,
-        "modelSeeds": [42],  # Can add more seeds if needed
+        "modelSeeds": model_seeds or [42],
         "sequences": [
             {
-                "protein": {
-                    "id": "A",
-                    "sequence": sequence
-                }
+                "protein": protein_dict
             }
         ],
         "dialect": "alphafold3",
@@ -106,3 +129,18 @@ def prepare_af3_input(sequence: str, name: str = "query") -> str:
     }
     
     return json.dumps(input_json)
+
+def prepare_protein_modification(ptm_type: str, position: int) -> dict:
+    """Helper function to create protein modification entries"""
+    return {
+        "ptmType": ptm_type,
+        "ptmPosition": position
+    }
+
+def prepare_template(mmcif: str, query_indices: list, template_indices: list) -> dict:
+    """Helper function to create template entries"""
+    return {
+        "mmcif": mmcif,
+        "queryIndices": query_indices,
+        "templateIndices": template_indices
+    }
