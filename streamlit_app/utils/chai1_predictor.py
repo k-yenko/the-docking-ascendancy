@@ -3,6 +3,8 @@ import modal
 from datetime import datetime
 import hashlib
 from uuid import uuid4
+from Bio.PDB import PDBParser, is_aa
+from Bio.PDB.Polypeptide import protein_letters_3to1
 
 # Initialize Modal
 app = modal.App(name="chai1-prediction")
@@ -65,30 +67,67 @@ def chai1_inference(fasta_content: str) -> list[(bytes, str)]:
     gpu="H100",
 )
 class Chai1Predictor:
-    def predict_structure(self, run_id: str, design_name: str):
-        """Main prediction function that interfaces with Streamlit"""
+    def predict_structure(self, run_id, design_name):
+        """Predict structure using Chai-1"""
         import streamlit as st
         
-        try:
-            # Create FASTA content from the selected binder
-            fasta_content = self._create_fasta_content(run_id, design_name)
-            st.write("### FASTA Input:")
-            st.code(fasta_content, language="text")
+        # Check if we should use a selected binder
+        if run_id is None and design_name is None:
+            if 'selected_binder' not in st.session_state:
+                raise ValueError("No binder selected and no run_id/design_name provided")
             
-            # Run prediction using Modal
-            st.write("Starting Chai-1 prediction...")
-            with app.run():
-                results = chai1_inference.remote(fasta_content)
+            # Use the selected binder from session state
+            selected_binder = st.session_state.selected_binder
+            design_name = selected_binder['design_name']
             
-            if results:
-                # Use first model for now
-                scores, cif_content = results[0]
-                st.write(f"Chai-1 prediction successful! Generated {len(results)} models")
-                return cif_content.encode()
+            # Get the PDB content directly from the session state
+            if 'pdb_content' in selected_binder:
+                # Use the PDB content we already have in memory
+                pdb_content = selected_binder['pdb_content']
                 
-        except Exception as e:
-            st.error(f"Error in predict_structure: {str(e)}")
-            raise
+                # Create a temporary file to use for the prediction
+                import tempfile
+                temp_dir = Path(tempfile.mkdtemp())
+                temp_pdb = temp_dir / f"{design_name}.pdb"
+                
+                # Write the PDB content to the temp file
+                with open(temp_pdb, 'wb') as f:
+                    f.write(pdb_content)
+                    
+                pdb_path = str(temp_pdb)
+                st.info(f"Using in-memory PDB content for {design_name}")
+                
+                # Extract sequence from PDB
+                parser = PDBParser(QUIET=True)
+                structure = parser.get_structure('structure', pdb_path)
+                
+                # Create FASTA content from structure
+                sequence = self._extract_sequence_from_structure(structure)
+                fasta_content = f">{design_name}\n{sequence}"
+                
+                try:
+                    # Run prediction
+                    st.write("Starting Chai-1 prediction...")
+                    with app.run():
+                        cif_content = chai1_inference.remote(fasta_content)
+                    
+                    # Clean up the temporary file
+                    import shutil
+                    shutil.rmtree(temp_dir)
+                    
+                    if cif_content:
+                        return cif_content
+                    else:
+                        raise Exception("Chai-1 prediction failed to return results")
+                except Exception as e:
+                    st.error(f"Error in Chai-1 prediction: {str(e)}")
+                    import traceback
+                    st.error(f"Traceback:\n{traceback.format_exc()}")
+                    raise
+            else:
+                raise ValueError("No PDB content found in selected binder")
+        else:
+            raise ValueError("Direct file access mode not supported - please select a binder from the gallery")
     
     def _create_fasta_content(self, run_id: str, design_name: str) -> str:
         """Helper method to create FASTA content"""
@@ -107,11 +146,11 @@ class Chai1Predictor:
         
         # Get target sequence from PDB
         pdb_path = Path(f"bindcraft/{run_id}/Accepted/{design_name}.pdb")
-        parser = PDB.PDBParser(QUIET=True)
+        parser = PDBParser(QUIET=True)
         structure = parser.get_structure('structure', str(pdb_path))
         target_sequence = ""
         for residue in structure[0]['A']:
-            if PDB.is_aa(residue):
+            if is_aa(residue):
                 try:
                     three_letter = residue.get_resname()
                     one_letter = protein_letters_3to1.get(three_letter, 'X')
@@ -122,6 +161,18 @@ class Chai1Predictor:
         # Create FASTA content matching the default input format
         fasta_content = f">protein|name=target\n{target_sequence}\n>protein|name=binder\n{binder_sequence}"
         return fasta_content
+
+    def _extract_sequence_from_structure(self, structure):
+        sequence = ""
+        for residue in structure[0]['A']:
+            if is_aa(residue):
+                try:
+                    three_letter = residue.get_resname()
+                    one_letter = protein_letters_3to1.get(three_letter, 'X')
+                    sequence += one_letter
+                except:
+                    sequence += 'X'
+        return sequence
 
 # Create singleton instance
 predictor = Chai1Predictor() 

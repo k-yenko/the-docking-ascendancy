@@ -9,12 +9,25 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 def structure_prediction_page():
+    # Handle navigation FIRST, before any UI elements
+    if 'navigate_to' in st.session_state:
+        navigate_to = st.session_state.navigate_to
+        del st.session_state.navigate_to
+        st.switch_page(navigate_to)
+    
     st.title("Step 3: Structure Prediction")
 
     if 'selected_binder' not in st.session_state:     
         st.error("Please select a binder design first")
         st.switch_page("pages/02_binder_gallery.py")
         return
+
+    # Add back button to navigation area
+    col1, col2 = st.columns([1, 6])
+    with col1:
+        if st.button("← Back"):
+            st.session_state.navigate_to = "pages/02_binder_gallery.py"
+            st.rerun()
 
     # Display selected binder info
     st.subheader("Selected Binder Design")
@@ -50,7 +63,8 @@ def structure_prediction_page():
     if st.button("Run Selected Predictions"):
         try:
             results = {}
-            st.write("Selected binder:", st.session_state.selected_binder)
+            st.write(f"Running predictions for design: {st.session_state.selected_binder['design_name']}")
+            
             run_id = st.session_state.selected_binder.get('run_id', '')
             design_name = st.session_state.selected_binder.get('design_name', '')
             
@@ -60,32 +74,48 @@ def structure_prediction_page():
             # Run predictions for each selected method
             for method in selected_methods:
                 if method == "Boltz-1":
-                    with st.spinner("Running Boltz-1 prediction..."):
-                        cif_content = boltz_predictor.predict_structure(run_id, design_name)
-                        if cif_content:
-                            prediction_id = f"{run_id}_{design_name}_boltz"
-                            st.session_state.prediction_history[prediction_id] = {
-                                'timestamp': datetime.now().isoformat(),
-                                'method': 'Boltz-1',
-                                'run_id': run_id,
-                                'design_name': design_name,
-                                'cif_content': cif_content
-                            }
-                            st.success("Boltz-1 prediction completed!")
+                    st.write("Running Boltz-1 prediction...")
+                    try:
+                        # Call predict_structure without run_id and design_name parameters
+                        cif_content = boltz_predictor.predict_structure(None, None)
+                        
+                        # Store in session state
+                        if 'prediction_history' not in st.session_state:
+                            st.session_state.prediction_history = {}
+                            
+                        prediction_id = f"boltz1_{design_name}"
+                        st.session_state.prediction_history[prediction_id] = {
+                            'timestamp': datetime.now().isoformat(),
+                            'method': 'Boltz-1',
+                            'design_name': design_name,
+                            'cif_content': cif_content
+                        }
+                        
+                        st.success(f"Boltz-1 prediction complete for {design_name}")
+                    except Exception as e:
+                        st.error(f"Error in Boltz-1 prediction: {str(e)}")
                 
                 elif method == "Chai-1":
-                    with st.spinner("Running Chai-1 prediction..."):
-                        cif_content = chai1_predictor.predict_structure(run_id, design_name)
-                        if cif_content:
-                            prediction_id = f"{run_id}_{design_name}_chai1"
-                            st.session_state.prediction_history[prediction_id] = {
-                                'timestamp': datetime.now().isoformat(),
-                                'method': 'Chai-1',
-                                'run_id': run_id,
-                                'design_name': design_name,
-                                'cif_content': cif_content
-                            }
-                            st.success("Chai-1 prediction completed!")
+                    st.write("Running Chai-1 prediction...")
+                    try:
+                        # Call predict_structure without run_id and design_name parameters
+                        cif_content = chai1_predictor.predict_structure(None, None)
+                        
+                        # Store in session state
+                        if 'prediction_history' not in st.session_state:
+                            st.session_state.prediction_history = {}
+                            
+                        prediction_id = f"chai1_{design_name}"
+                        st.session_state.prediction_history[prediction_id] = {
+                            'timestamp': datetime.now().isoformat(),
+                            'method': 'Chai-1',
+                            'design_name': design_name,
+                            'cif_content': cif_content
+                        }
+                        
+                        st.success(f"Chai-1 prediction complete for {design_name}")
+                    except Exception as e:
+                        st.error(f"Error in Chai-1 prediction: {str(e)}")
             
             if st.session_state.prediction_history:
                 st.success("All selected predictions completed!")

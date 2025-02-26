@@ -114,6 +114,9 @@ def bindcraft(
         validate_design_sequence,
     )
 
+    # Add this line at the beginning of the function to ensure correct type
+    number_of_final_designs = int(number_of_final_designs)
+
     starting_pdb = f"/bindcraft/{binder_name}.pdb"
     Path(starting_pdb).parent.mkdir(parents=True, exist_ok=True)
     open(starting_pdb, "w").write(pdb_str)

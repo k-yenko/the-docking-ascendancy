@@ -2,8 +2,9 @@ import streamlit as st
 from pathlib import Path
 import sys
 import requests
-from modal import Stub, Image
+from modal import Stub
 import logging
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -13,8 +14,7 @@ logger = logging.getLogger(__name__)
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from streamlit_app.utils.bindcraft_utils import validate_sequence, run_bindcraft
-from modal_bindcraft import app, bindcraft, image
+from modal_bindcraft import app, bindcraft
 
 def fetch_pdb(pdb_id: str) -> str:
     """
@@ -41,39 +41,106 @@ def fetch_pdb(pdb_id: str) -> str:
     # Return PDB file content
     return response.text
 
-def protein_input_page():
-    # Deploy Modal app if not already deployed
-    try:
-        logger.info("Checking Modal app deployment status...")
+def save_bindcraft_results(results, pdb_id):
+    """Save BindCraft results to local directory
+    
+    Args:
+        results: List of (path, content) tuples from BindCraft
+        pdb_id: PDB ID for this run
         
-        # Create a new stub for this session
-        stub = Stub("bindcraft", image=image)
-        
-        # Try to deploy the app
-        logger.info("Attempting to deploy Modal app...")
-        with st.spinner("Initializing BindCraft..."):
-            try:
-                # First try to deploy the stub
-                logger.info("Deploying stub...")
-                stub.deploy()
-                
-                # Then deploy the app
-                logger.info("Deploying app...")
-                app.deploy()
-                
-                logger.info("BindCraft initialization successful!")
-                st.success("BindCraft initialized successfully!")
-            except Exception as e:
-                logger.error(f"Error during Modal deployment: {str(e)}", exc_info=True)
-                st.error(f"Error initializing BindCraft: {str(e)}")
-                return
-            
-    except Exception as e:
-        logger.error(f"Error checking Modal deployment: {str(e)}", exc_info=True)
-        st.error(f"Error with Modal setup: {str(e)}")
-        return
+    Returns:
+        Path to output directory
+    """
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    output_dir = project_root / "bindcraft_output" / f"{pdb_id}_{timestamp}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    logger.info(f"Saving BindCraft results to {output_dir}")
+    
+    # Save all files
+    for rel_path, content in results:
+        file_path = output_dir / rel_path
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(file_path, "wb") as f:
+            f.write(content)
+    
+    logger.info(f"Saved {len(results)} files to {output_dir}")
+    return output_dir
 
+def load_existing_bindcraft_results(run_id="2502221700"):
+    """Load existing BindCraft results into session state
+    
+    Args:
+        run_id: The run ID folder to load from
+    
+    Returns:
+        List of (path, content) tuples mimicking Modal output
+    """
+    logger.info(f"Loading existing BindCraft results from run {run_id}")
+    
+    # Path to the existing results
+    output_dir = project_root / "out" / "bindcraft" / run_id
+    if not output_dir.exists():
+        raise ValueError(f"Output directory {output_dir} not found")
+    
+    # Collect all files in the output directory
+    results = []
+    for file_path in output_dir.glob("**/*.*"):
+        if file_path.is_file():
+            # Create relative path from the output directory
+            rel_path = file_path.relative_to(output_dir)
+            # Read file content
+            content = file_path.read_bytes()
+            # Add to results
+            results.append((rel_path, content))
+    
+    logger.info(f"Loaded {len(results)} files from {output_dir}")
+    return results
+
+def protein_input_page():
+    # Handle navigation FIRST, before any UI elements
+    if 'navigate_to' in st.session_state:
+        navigate_to = st.session_state.navigate_to
+        del st.session_state.navigate_to
+        st.switch_page(navigate_to)
+    
     st.title("Step 1: Protein Input")
+    
+    # Add a "Dev Mode" checkbox at the top
+    dev_mode = st.checkbox("Development Mode", help="Load existing results for testing")
+    
+    if dev_mode:
+        st.warning("Development Mode Active")
+        st.write("This will load existing BindCraft results instead of running a new job")
+        run_id = st.text_input("Run ID to load:", value="2502221700")
+        
+        # First button only loads results
+        if st.button("Load Existing Results"):
+            try:
+                # Load existing results
+                results = load_existing_bindcraft_results(run_id)
+                
+                # Store results in session state
+                st.session_state.bindcraft_results = results
+                
+                # Set a flag to show we have results
+                st.session_state.results_loaded = True
+                
+                # Show success message
+                st.success(f"Loaded {len(results)} files from run {run_id}")
+                
+            except Exception as e:
+                logger.error(f"Error loading existing results: {str(e)}", exc_info=True)
+                st.error(f"Error: {str(e)}")
+        
+        # Show navigation button separately, only if results are loaded
+        if st.session_state.get('results_loaded', False):
+            if st.button("Go to Binder Gallery"):
+                st.session_state.navigate_to = "pages/02_binder_gallery.py"
+                st.rerun()
+        
+        # Add a horizontal line to separate dev mode from regular mode
+        st.markdown("---")
     
     # Initialize session state
     if 'pdb_content' not in st.session_state:
@@ -143,25 +210,47 @@ def protein_input_page():
                                 
                                 # Run BindCraft with proper string arguments
                                 logger.info("Starting BindCraft remote execution...")
-                                results = bindcraft.remote(
-                                    design_path=str(design_path),
-                                    binder_name=f"binder_{pdb_id}",
-                                    pdb_str=pdb_content,
-                                    chains="A",
-                                    target_hotspot_residues="",
-                                    lengths="50,100",
-                                    number_of_final_designs=3
-                                )
-                                logger.info("BindCraft execution completed")
+                                try:
+                                    # Log all parameters for debugging
+                                    logger.info(f"Parameters being sent to BindCraft:")
+                                    logger.info(f"- design_path: {str(design_path)} (type: {type(str(design_path))})")
+                                    logger.info(f"- binder_name: {f'binder_{pdb_id}'} (type: {type(f'binder_{pdb_id}')})")
+                                    logger.info(f"- pdb_str length: {len(pdb_content)} chars")
+                                    logger.info(f"- chains: 'A' (type: {type('A')})")
+                                    logger.info(f"- target_hotspot_residues: '' (type: {type('')})")
+                                    logger.info(f"- lengths: '50,100' (type: {type('50,100')})")
+                                    logger.info(f"- number_of_final_designs: 3 (type: {type(3)})")
+                                    
+                                    with app.run():
+                                        results = bindcraft.remote(
+                                            design_path=str(design_path),
+                                            binder_name=f"binder_{pdb_id}",
+                                            pdb_str=pdb_content,
+                                            chains="A",
+                                            target_hotspot_residues="",
+                                            lengths=[50, 100],
+                                            number_of_final_designs="3"
+                                        )
+                                except Exception as e:
+                                    logger.error(f"Error calling BindCraft: {str(e)}")
+                                    logger.error(f"Error type: {type(e)}")
+                                    import traceback
+                                    logger.error(f"Traceback: {traceback.format_exc()}")
+                                    # Re-raise to show in Streamlit
+                                    raise
                                 
                                 # Store results in session state
                                 st.session_state.bindcraft_results = results
                                 logger.info("Stored results in session state")
                                 
-                                # Success message and navigation
-                                st.success("BindCraft design completed!")
-                                st.button("View Results Gallery", 
-                                        on_click=lambda: st.switch_page("pages/02_binder_gallery.py"))
+                                # Save results locally
+                                output_dir = save_bindcraft_results(results, pdb_id)
+                                st.success(f"BindCraft design completed! Results saved to {output_dir}")
+                                
+                                # Replace callback with direct navigation
+                                if st.button("Go to Binder Gallery"):
+                                    st.session_state.navigate_to = "pages/02_binder_gallery.py"
+                                    st.rerun()
                                 
                             except Exception as e:
                                 logger.error(f"Error during BindCraft execution: {str(e)}", exc_info=True)
