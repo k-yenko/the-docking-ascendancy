@@ -114,8 +114,7 @@ models_dir = Path("/models/boltz1")
 
 @app.function(
     image=image,
-    volumes={models_dir: boltz_model_volume},
-    timeout=10 * MINUTES,
+    volumes={models_dir: boltz_model_volume},    
     gpu="H100",
 )
 def boltz1_inference(
@@ -164,8 +163,7 @@ download_image = (
 
 
 @app.function(
-    volumes={models_dir: boltz_model_volume},
-    timeout=20 * MINUTES,
+    volumes={models_dir: boltz_model_volume},    
     image=download_image,
 )
 def download_model(

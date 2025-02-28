@@ -10,6 +10,8 @@ from Bio import PDB
 from Bio.PDB import Superimposer
 import nglview as nv
 import numpy as np
+from streamlit_app.utils.boltz_utils import latest_yaml_content
+from streamlit_app.utils.common_utils import extract_sequences_from_pdb
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
@@ -228,6 +230,11 @@ def results_dashboard():
                  on_click=lambda: st.switch_page("pages/03_structure_prediction.py"))
         return
     
+    if 'selected_methods' in st.session_state:
+        selected_methods = st.session_state.selected_methods
+    else:
+        selected_methods = []  # Default if none were selected
+    
     # Group predictions by design name
     predictions = st.session_state.prediction_history
     design_predictions = {}
@@ -245,16 +252,30 @@ def results_dashboard():
         st.subheader("Structure Controls")
         col1, col2 = st.columns(2)
         with col1:
-            show_boltz = st.checkbox("Show Boltz-1", value=True)
+            show_boltz = st.checkbox("Show Boltz-1", 
+                                    value="Boltz-1" in selected_methods)
         with col2:
-            show_chai = st.checkbox("Show Chai-1", value=True)
+            show_chai = st.checkbox("Show Chai-1", 
+                                   value="Chai-1" in selected_methods)
         
         # Get structures based on visibility
         structures = {}
         if show_boltz:
-            structures["Boltz-1"] = methods["Boltz-1"]['cif_content'].decode()
+            if 'prediction_history' in st.session_state:
+                # Find the boltz prediction (if any)
+                boltz_predictions = [v for k, v in st.session_state.prediction_history.items() 
+                                     if k.startswith('boltz_') and v['method'] == 'Boltz-1']
+                if boltz_predictions:
+                    boltz_result = boltz_predictions[0]
+                    structures["Boltz-1"] = boltz_result['cif_content'].decode() if isinstance(boltz_result['cif_content'], bytes) else boltz_result['cif_content']
         if show_chai:
-            structures["Chai-1"] = methods["Chai-1"]['cif_content'].decode()
+            if 'prediction_history' in st.session_state:
+                # Find the chai prediction (if any)
+                chai_predictions = [v for k, v in st.session_state.prediction_history.items() 
+                                   if k.startswith('chai_') and v['method'] == 'Chai-1']
+                if chai_predictions:
+                    chai_result = chai_predictions[0]
+                    structures["Chai-1"] = chai_result['cif_content'].decode() if isinstance(chai_result['cif_content'], bytes) else chai_result['cif_content']
         
         if len(structures) == 2:
             # Align and combine both structures
