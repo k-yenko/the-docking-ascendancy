@@ -26,28 +26,21 @@ def create_yaml_content(pdb_path, design_seq=None):
         "sequences": []
     }
     
-    # Add the first protein entry from PDB chains
-    chain_ids = list(pdb_sequences.keys())
-    combined_sequence = ""
-    for chain_id in sorted(chain_ids):
-        combined_sequence += pdb_sequences[chain_id]
+    # Add each chain as a separate protein entry
+    for chain_id, sequence in sorted(pdb_sequences.items()):
+        yaml_content["sequences"].append({
+            "protein": {
+                "id": chain_id,
+                "sequence": sequence
+            }
+        })
     
-    print(f"[YAML_UTILS] Combined sequence length: {len(combined_sequence)}")
-    
-    # Add the target protein from PDB
-    yaml_content["sequences"].append({
-        "protein": {
-            "id": chain_ids,
-            "sequence": combined_sequence
-        }
-    })
-    
-    # If we have a design sequence from CSV, add it as a second protein
+    # If we have a design sequence from CSV, add it as a separate protein
     if design_seq:
         print(f"[YAML_UTILS] Adding design sequence: {design_seq}")
         yaml_content["sequences"].append({
             "protein": {
-                "id": ["B"],  # Assuming the design is chain B
+                "id": "B",  # Assuming the design is chain B
                 "sequence": design_seq
             }
         })

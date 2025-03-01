@@ -151,7 +151,7 @@ def protein_input_page():
     # Input method selection
     input_method = st.radio(
         "Choose input method:",
-        ["Enter sequence", "Upload FASTA file", "Fetch from PDB"]
+        ["Enter sequence", "Upload FASTA file", "Upload PDB file", "Fetch from PDB"]
     )
     
     if input_method == "Enter sequence":
@@ -166,8 +166,79 @@ def protein_input_page():
         fasta_file = st.file_uploader("Upload FASTA file", type=['fasta', 'fa'])
         if fasta_file:
             # Process FASTA file
-            pass
+            content = fasta_file.read().decode()
+            st.text_area("FASTA File Preview:", content[:500] + "..." if len(content) > 500 else content, height=200, disabled=True)
+            # TODO: Extract sequence from FASTA
             
+    elif input_method == "Upload PDB file":
+        pdb_file = st.file_uploader("Upload PDB file", type=['pdb', 'ent'])
+        if pdb_file:
+            # Read and store PDB content
+            pdb_content = pdb_file.read().decode('utf-8')
+            pdb_id = pdb_file.name.split('.')[0]  # Use filename as PDB ID
+            
+            # Store PDB content and ID
+            st.session_state.pdb_content = pdb_content
+            st.session_state.pdb_id = pdb_id
+            
+            # Show success and preview
+            st.success(f"Successfully loaded PDB file: {pdb_file.name}")
+            st.text_area("PDB File Preview:", pdb_content[:500] + "..." if len(pdb_content) > 500 else pdb_content, height=200, disabled=True)
+            
+            # Add BindCraft button
+            if st.button("Run BindCraft Design"):
+                with st.spinner("Running BindCraft..."):
+                    try:
+                        logger.info("Setting up BindCraft run...")
+                        
+                        # Create temporary directory for design
+                        design_path = Path(f"/tmp/bindcraft_{pdb_id}")
+                        design_path.mkdir(parents=True, exist_ok=True)
+                        logger.info(f"Created design directory: {design_path}")
+                        
+                        # Save PDB file
+                        pdb_file_path = design_path / f"{pdb_id}.pdb"
+                        pdb_file_path.write_text(pdb_content)
+                        logger.info(f"Saved PDB file to: {pdb_file_path}")
+                        
+                        # Run BindCraft with proper string arguments
+                        logger.info("Starting BindCraft remote execution...")
+                        try:
+                            with app.run():
+                                results = bindcraft.remote(
+                                    design_path=str(design_path),
+                                    binder_name=f"binder_{pdb_id}",
+                                    pdb_str=pdb_content,
+                                    chains="A",
+                                    target_hotspot_residues="",
+                                    lengths=[50, 100],
+                                    number_of_final_designs="3"
+                                )
+                        except Exception as e:
+                            logger.error(f"Error calling BindCraft: {str(e)}")
+                            logger.error(f"Error type: {type(e)}")
+                            import traceback
+                            logger.error(f"Traceback: {traceback.format_exc()}")
+                            # Re-raise to show in Streamlit
+                            raise
+                        
+                        # Store results in session state
+                        st.session_state.bindcraft_results = results
+                        logger.info("Stored results in session state")
+                        
+                        # Save results locally
+                        output_dir = save_bindcraft_results(results, pdb_id)
+                        st.success(f"BindCraft design completed! Results saved to {output_dir}")
+                        
+                        # Replace callback with direct navigation
+                        if st.button("Go to Binder Gallery"):
+                            st.session_state.navigate_to = "pages/02_binder_gallery.py"
+                            st.rerun()
+                        
+                    except Exception as e:
+                        logger.error(f"Error during BindCraft execution: {str(e)}", exc_info=True)
+                        st.error(f"Error running BindCraft: {str(e)}")
+
     else:  # Fetch from PDB
         pdb_id = st.text_input("Enter PDB ID (e.g. 4Z18):")
         if pdb_id:

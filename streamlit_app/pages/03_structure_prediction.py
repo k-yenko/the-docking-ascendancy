@@ -61,8 +61,17 @@ def run_boltz_prediction(binder_data, pdb_content, status_queue=None):
             status_queue.put(("yaml_ready", yaml_content))
             status_queue.put(("status", "Running Boltz-1 prediction..."))
         
+        # Get Boltz options from session state
+        boltz_options = st.session_state.get('boltz_options', {
+            "use_msa_server": True
+        })
+        
         # Now proceed with prediction
-        cif_content = boltz_predictor.predict_structure_direct(pdb_content, design_name)
+        cif_content = boltz_predictor.predict_structure_direct(
+            pdb_content, 
+            design_name,
+            use_msa_server=boltz_options["use_msa_server"]
+        )
         
         # Additional validation
         if not cif_content:
@@ -371,6 +380,16 @@ def structure_prediction_page():
             if "Boltz-1" in selected_methods:
                 debug_log.subheader("Boltz-1 YAML Template")
                 debug_log.info("YAML will be generated during execution, check debug logs after prediction completes")
+                
+            # Add advanced options section with expander
+            with st.expander("Advanced Boltz Options"):
+                use_msa_server = st.checkbox("Use MSA Server", value=True, 
+                                            help="Generate MSA using mmseqs2 server")
+                
+                # Store settings in session state
+                st.session_state.boltz_options = {
+                    "use_msa_server": use_msa_server
+                }
                 
         except Exception as e:
             status_placeholder.error(f"Error in prediction process: {str(e)}")

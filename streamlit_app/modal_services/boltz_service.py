@@ -29,14 +29,14 @@ boltz_models_dir = Path("/root/.cache/boltz/weights")  # Use Boltz's default loc
     volumes={boltz_models_dir: boltz_model_volume},
     gpu="H100",
 )
-def boltz1_inference(yaml_content: str, pdb_content: bytes) -> tuple[bool, bytes, str]:
+def boltz1_inference(yaml_content: str, pdb_content: bytes, use_msa_server=True) -> tuple[bool, bytes, str]:
     """Runs Boltz-1 prediction on Modal"""
     import os
     import subprocess
     import tempfile
     from pathlib import Path
     
-    print(f"Running Boltz-1 inference")
+    print(f"Running Boltz-1 inference with use_msa_server={use_msa_server}")
     
     # Download weights if needed
     try:
@@ -52,8 +52,6 @@ def boltz1_inference(yaml_content: str, pdb_content: bytes) -> tuple[bool, bytes
                 text=True
             )
             print(f"Download exit code: {result.returncode}")
-            print(f"Download stdout: {result.stdout}")
-            print(f"Download stderr: {result.stderr}")
     except Exception as e:
         print(f"Error checking/downloading weights: {e}")
     
@@ -70,14 +68,27 @@ def boltz1_inference(yaml_content: str, pdb_content: bytes) -> tuple[bool, bytes
     with open(pdb_path, "wb") as f:
         f.write(pdb_content)
     
-    # Run prediction
-    cmd = ["boltz", "predict", yaml_path, "--output", tmp_dir]
-    print(f"Running command: {' '.join(cmd)}")
+    # Get the current working directory to return to
+    original_dir = os.getcwd()
     
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    print(f"Command exit code: {result.returncode}")
-    print(f"STDOUT:\n{result.stdout}")
-    print(f"STDERR:\n{result.stderr}")
+    # Change to temp directory (Boltz outputs to current directory)
+    os.chdir(tmp_dir)
+    
+    try:
+        # Build command with only the MSA server flag if requested
+        cmd = ["boltz", "predict", yaml_path]
+        if use_msa_server:
+            cmd.append("--use_msa_server")
+            
+        print(f"Running command: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        print(f"Command exit code: {result.returncode}")
+        print(f"STDOUT:\n{result.stdout}")
+        print(f"STDERR:\n{result.stderr}")
+    finally:
+        # Always change back to original directory
+        os.chdir(original_dir)
     
     # Check for success
     if result.returncode != 0:
@@ -88,15 +99,35 @@ def boltz1_inference(yaml_content: str, pdb_content: bytes) -> tuple[bool, bytes
     possible_cif_paths = [
         f"{tmp_dir}/predictions/input/input_model_0.cif",
         f"{tmp_dir}/input/input_model_0.cif",
-        f"{tmp_dir}/input_model_0.cif"
+        f"{tmp_dir}/input_model_0.cif",
+        f"{tmp_dir}/predictions"
     ]
     
     for path in possible_cif_paths:
         if os.path.exists(path):
-            print(f"Found CIF file at {path}")
-            with open(path, "rb") as f:
-                cif_content = f.read()
-            return True, cif_content, ""
+            # If it's a directory, look for CIF files in it
+            if os.path.isdir(path):
+                cif_files = []
+                for root, dirs, files in os.walk(path):
+                    for file in files:
+                        if file.endswith(".cif"):
+                            cif_files.append(os.path.join(root, file))
+                
+                if cif_files:
+                    print(f"Found CIF file at {cif_files[0]}")
+                    with open(cif_files[0], "rb") as f:
+                        cif_content = f.read()
+                    return True, cif_content, ""
+            else:
+                # It's a file
+                print(f"Found CIF file at {path}")
+                with open(path, "rb") as f:
+                    cif_content = f.read()
+                return True, cif_content, ""
+    
+    # Try one more directory check at the top level
+    print(f"Looking for CIF files in temp directory: {tmp_dir}")
+    print(f"Directory contents: {os.listdir(tmp_dir)}")
     
     # If no specific path found, look for any .cif file
     for root, dirs, files in os.walk(tmp_dir):
@@ -121,8 +152,17 @@ class BoltzPredictor:
         except:
             pass # Will be deployed on first use
     
-    def predict_structure_direct(self, pdb_content, design_name):
-        """Run structure prediction with direct PDB content input"""
+    def predict_structure_direct(self, pdb_content, design_name, use_msa_server=True):
+        """Run structure prediction with direct PDB content input
+        
+        Args:
+            pdb_content (bytes): PDB file content
+            design_name (str): Name of the design
+            use_msa_server (bool): Whether to use the MMseqs2 MSA server
+            
+        Returns:
+            bytes: CIF file content of the predicted structure
+        """
         import tempfile
         import shutil
         import traceback
@@ -146,9 +186,13 @@ class BoltzPredictor:
             
             # Run Modal prediction
             try:
-                print(f"[BOLTZ DEBUG] Starting Modal execution")
+                print(f"[BOLTZ DEBUG] Starting Modal execution with use_msa_server={use_msa_server}")
                 with boltz_app.run():
-                    success, cif_content, error_msg = boltz1_inference.remote(yaml_content, pdb_content)
+                    success, cif_content, error_msg = boltz1_inference.remote(
+                        yaml_content, 
+                        pdb_content,
+                        use_msa_server=use_msa_server
+                    )
                 
                 print(f"[BOLTZ DEBUG] Modal execution completed: success={success}, error_msg={error_msg}")
             except Exception as e:
