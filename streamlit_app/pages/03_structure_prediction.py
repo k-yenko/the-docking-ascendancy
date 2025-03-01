@@ -331,6 +331,8 @@ def structure_prediction_page():
                         'design_name': chai_result['design_name'],
                         'cif_content': chai_result['cif_content']
                     }
+                    # Debug print to confirm
+                    print(f"Stored Chai-1 prediction with ID: {prediction_id}, content size: {len(chai_result['cif_content']) if isinstance(chai_result['cif_content'], bytes) else 'unknown'}")
                     with status_placeholder.container():
                         st.success("✅ Chai-1 prediction completed successfully")
             

@@ -322,5 +322,26 @@ def results_dashboard():
                     mime="chemical/x-cif"
                 )
 
+    # Add this debug section at the start of the dashboard
+    st.subheader("Debug Information")
+    with st.expander("Session State Debug"):
+        st.write("Prediction History Keys:")
+        if 'prediction_history' in st.session_state:
+            for key, value in st.session_state.prediction_history.items():
+                st.write(f"Key: {key}, Method: {value.get('method')}")
+                # Check if the CIF content is valid
+                cif_content = value.get('cif_content')
+                if cif_content:
+                    cif_size = len(cif_content) if isinstance(cif_content, str) else len(cif_content) if isinstance(cif_content, bytes) else 0
+                    st.write(f"  CIF Content Size: {cif_size} bytes")
+                    if isinstance(cif_content, bytes):
+                        st.write(f"  CIF Content Type: bytes")
+                    else:
+                        st.write(f"  CIF Content Type: {type(cif_content)}")
+                else:
+                    st.write("  CIF Content: None")
+        else:
+            st.write("No prediction history in session state")
+
 if __name__ == "__main__":
     results_dashboard() 
