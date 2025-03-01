@@ -222,7 +222,7 @@ def align_and_combine_structures(cif1, cif2=None, is_boltz=True):
     return combined_cif, rmsd
 
 def results_dashboard():
-    st.title("Structure Prediction Results")
+    st.title("Structure Predictions")
     
     if 'prediction_history' not in st.session_state or not st.session_state.prediction_history:
         st.info("No predictions available yet. Run some predictions first!")

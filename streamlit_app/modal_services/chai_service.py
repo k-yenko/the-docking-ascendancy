@@ -30,18 +30,58 @@ chai_image = chai_image.env({
 })
 
 @chai_app.function(
-    gpu="H100",
-    volumes={chai_models_dir: chai_model_volume},
     image=chai_image,
+    gpu="A100",
 )
-def chai1_inference(fasta_content: str) -> list:
+def chai1_inference(fasta_content: str) -> bytes:
     """Runs Chai-1 prediction on Modal"""
+    import os
+    import tempfile
     from pathlib import Path
     import torch
-    from chai_lab import chai1
     
-    results = chai1.predict_structure([fasta_content])
-    return results
+    # Create temp directory for inputs and outputs
+    tmp_dir = tempfile.mkdtemp()
+    
+    # Write input FASTA
+    fasta_path = Path(f"{tmp_dir}/input.fasta")
+    fasta_path.write_text(fasta_content.strip())
+    
+    # Create output directory
+    output_dir = Path(f"{tmp_dir}/output")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Import chai_lab and run inference
+    try:
+        from chai_lab import chai1
+        
+        # Debug: Print available methods
+        print(f"Available methods in chai_lab.chai1: {dir(chai1)}")
+        
+        # Use the correct method name based on Modal example
+        chai1.run_inference(
+            fasta_file=fasta_path,
+            output_dir=output_dir,
+            device=torch.device("cuda")
+        )
+        
+        # Look for output files
+        result_files = list(output_dir.glob("pred.model_idx_*.cif"))
+        if not result_files:
+            result_files = list(output_dir.glob("*.cif"))
+        
+        if result_files:
+            # Return the first model's CIF content
+            with open(result_files[0], "rb") as f:
+                return f.read()
+        else:
+            raise ValueError(f"No CIF files found in output directory: {list(output_dir.glob('*'))}")
+            
+    except Exception as e:
+        print(f"Error in Chai-1 prediction: {str(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        raise
 
 class Chai1Predictor:
     def __init__(self):
@@ -76,43 +116,51 @@ class Chai1Predictor:
         import tempfile
         import shutil
         import traceback
-        from Bio.PDB import PDBParser
+        from streamlit_app.utils.common_utils import extract_sequences_from_pdb
+        from Bio import PDB
         
         try:
-            # Create temp file for PDB
+            # Create temp files
             temp_dir = Path(tempfile.mkdtemp())
             temp_pdb = temp_dir / f"{design_name}.pdb"
             
-            # Write PDB content
-            with open(temp_pdb, "wb") as f:
+            # Write the PDB content to the temp file
+            with open(temp_pdb, 'wb') as f:
                 f.write(pdb_content)
+            
+            # Extract sequence from PDB
+            sequences = extract_sequences_from_pdb(temp_pdb)
+            
+            # Create FASTA content
+            fasta_content = ""
+            for chain_id, seq in sequences.items():
+                fasta_content += f">protein|name={design_name}_{chain_id}\n{seq}\n"
+            
+            # Run Modal prediction
+            try:
+                print(f"[CHAI DEBUG] Starting Modal execution")
+                with chai_app.run():
+                    # The modified function now returns CIF content directly
+                    cif_content = chai1_inference.remote(fasta_content)
                 
-            # Parse PDB and extract sequence
-            parser = PDBParser(QUIET=True)
-            structure = parser.get_structure('structure', temp_pdb)
-            sequence = self._extract_sequence_from_structure(structure)
-            fasta_content = f">protein|name={design_name}\n{sequence}"
+                print(f"[CHAI DEBUG] Modal execution completed")
+            except Exception as e:
+                print(f"[CHAI DEBUG] ⚠️ Modal execution failed: {str(e)}")
+                print(f"[CHAI DEBUG] Traceback: {traceback.format_exc()}")
+                raise
             
-            # Run prediction
-            print("Starting Chai-1 prediction...")
-            with chai_app.run():
-                results = chai1_inference.remote(fasta_content)
-            
-            # Clean up the temporary file
+            # Clean up
             shutil.rmtree(temp_dir)
             
-            if results:
-                # Extract just the first model's CIF content and convert to bytes
-                first_model = results[0]
-                scores, cif_content = first_model
-                print(f"Generated {len(results)} models. Using the first one.")
-                # Convert string to bytes since that's what the dashboard expects
-                return cif_content.encode('utf-8')
-            else:
-                raise Exception("Chai-1 prediction failed to return results")
+            # Validate result
+            if not cif_content or len(cif_content) == 0:
+                raise ValueError("Received empty CIF content from Chai-1")
+            
+            return cif_content
+        
         except Exception as e:
-            print(f"Error in Chai-1 prediction: {str(e)}")
-            print(f"Traceback:\n{traceback.format_exc()}")
+            print(f"[CHAI DEBUG] ❌ CRITICAL ERROR: {str(e)}")
+            print(f"[CHAI DEBUG] Traceback: {traceback.format_exc()}")
             raise
 
 # Create singleton instance

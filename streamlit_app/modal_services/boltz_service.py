@@ -29,14 +29,14 @@ boltz_models_dir = Path("/root/.cache/boltz/weights")  # Use Boltz's default loc
     volumes={boltz_models_dir: boltz_model_volume},
     gpu="H100",
 )
-def boltz1_inference(yaml_content: str, pdb_content: bytes, use_msa_server=True) -> tuple[bool, bytes, str]:
+def boltz1_inference(yaml_content: str, pdb_content: bytes, use_msa_server=True, msa_content=None, msa_filename=None) -> tuple[bool, bytes, str]:
     """Runs Boltz-1 prediction on Modal"""
     import os
     import subprocess
     import tempfile
     from pathlib import Path
     
-    print(f"Running Boltz-1 inference with use_msa_server={use_msa_server}")
+    print(f"Running Boltz-1 inference with use_msa_server={use_msa_server}, msa_file={msa_filename if msa_content else 'None'}")
     
     # Download weights if needed
     try:
@@ -68,6 +68,16 @@ def boltz1_inference(yaml_content: str, pdb_content: bytes, use_msa_server=True)
     with open(pdb_path, "wb") as f:
         f.write(pdb_content)
     
+    # If MSA content is provided, write it to a file
+    msa_path = None
+    if msa_content and msa_filename:
+        msa_dir = f"{tmp_dir}/msas"
+        os.makedirs(msa_dir, exist_ok=True)
+        msa_path = f"{msa_dir}/{msa_filename}"
+        with open(msa_path, "wb") as f:
+            f.write(msa_content)
+        print(f"Wrote MSA file to {msa_path}")
+    
     # Get the current working directory to return to
     original_dir = os.getcwd()
     
@@ -75,11 +85,18 @@ def boltz1_inference(yaml_content: str, pdb_content: bytes, use_msa_server=True)
     os.chdir(tmp_dir)
     
     try:
-        # Build command with only the MSA server flag if requested
+        # Build command
         cmd = ["boltz", "predict", yaml_path]
-        if use_msa_server:
+        
+        # Add MSA option
+        if msa_path:
+            # If custom MSA is provided, use --msa_dir
+            cmd.extend(["--msa_dir", os.path.dirname(msa_path)])
+        elif use_msa_server:
+            # Otherwise use the MSA server if requested
             cmd.append("--use_msa_server")
-            
+        # If neither option is selected, no MSA flags are added
+        
         print(f"Running command: {' '.join(cmd)}")
         
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -152,13 +169,15 @@ class BoltzPredictor:
         except:
             pass # Will be deployed on first use
     
-    def predict_structure_direct(self, pdb_content, design_name, use_msa_server=True):
+    def predict_structure_direct(self, pdb_content, design_name, use_msa_server=True, msa_content=None, msa_filename=None):
         """Run structure prediction with direct PDB content input
         
         Args:
             pdb_content (bytes): PDB file content
             design_name (str): Name of the design
             use_msa_server (bool): Whether to use the MMseqs2 MSA server
+            msa_content (bytes): Optional MSA file content in .a3m format
+            msa_filename (str): Filename for the MSA file
             
         Returns:
             bytes: CIF file content of the predicted structure
@@ -186,12 +205,14 @@ class BoltzPredictor:
             
             # Run Modal prediction
             try:
-                print(f"[BOLTZ DEBUG] Starting Modal execution with use_msa_server={use_msa_server}")
+                print(f"[BOLTZ DEBUG] Starting Modal execution with use_msa_server={use_msa_server}, msa_file={msa_filename or 'None'}")
                 with boltz_app.run():
                     success, cif_content, error_msg = boltz1_inference.remote(
                         yaml_content, 
                         pdb_content,
-                        use_msa_server=use_msa_server
+                        use_msa_server=use_msa_server,
+                        msa_content=msa_content,
+                        msa_filename=msa_filename
                     )
                 
                 print(f"[BOLTZ DEBUG] Modal execution completed: success={success}, error_msg={error_msg}")

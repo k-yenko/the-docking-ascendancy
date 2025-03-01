@@ -70,7 +70,9 @@ def run_boltz_prediction(binder_data, pdb_content, status_queue=None):
         cif_content = boltz_predictor.predict_structure_direct(
             pdb_content, 
             design_name,
-            use_msa_server=boltz_options["use_msa_server"]
+            use_msa_server=boltz_options["use_msa_server"],
+            msa_content=boltz_options.get("msa_file"),
+            msa_filename=boltz_options.get("msa_filename")
         )
         
         # Additional validation
@@ -167,19 +169,68 @@ def structure_prediction_page():
 
     # Prediction method selection
     st.subheader("Select Prediction Methods")
-    
+
+    # Create method containers with their own options
+    method_col1, method_col2 = st.columns(2)
+
+    with method_col1:
+        # Boltz-1 container with options
+        boltz_container = st.container()
+        with boltz_container:
+            use_boltz = st.checkbox('Boltz-1', help="Boltz-1 structure prediction model")
+            
+            # Indented container for Boltz options
+            if use_boltz:
+                with st.container():
+                    st.markdown("#### Boltz-1 Options")
+                    st.divider()
+                    
+                    # MSA options
+                    msa_option = st.radio(
+                        "MSA Source for Boltz-1",
+                        ["Auto-generate MSA", "Upload MSA File"],
+                        index=0,
+                        help="Multiple Sequence Alignments improve prediction accuracy"
+                    )
+                    
+                    # Set default options
+                    use_msa_server = (msa_option == "Auto-generate MSA")
+                    msa_file = None
+                    
+                    # Show file uploader only if "Upload MSA File" is selected
+                    if msa_option == "Upload MSA File":
+                        msa_file = st.file_uploader("Upload MSA file (.a3m format)", type=['a3m'])
+                        if msa_file:
+                            # Read MSA content
+                            msa_content = msa_file.read()
+                            st.success(f"MSA file loaded: {msa_file.name} ({len(msa_content)} bytes)")
+                        else:
+                            st.warning("Please upload an .a3m MSA file")
+                    
+                    # Store settings in session state
+                    st.session_state.boltz_options = {
+                        "use_msa_server": use_msa_server,
+                        "msa_file": msa_file.getvalue() if msa_option == "Upload MSA File" and 'msa_file' in locals() and msa_file else None,
+                        "msa_filename": msa_file.name if msa_option == "Upload MSA File" and 'msa_file' in locals() and msa_file else None
+                    }
+
+    with method_col2:
+        # Chai-1 container (with potential future options)
+        chai_container = st.container()
+        with chai_container:
+            use_chai = st.checkbox('Chai-1', help="Chai-1 structure prediction model")
+        
+        # AlphaFold3 container
+        af3_container = st.container()
+        with af3_container:
+            st.checkbox('AlphaFold3', disabled=True, help="Coming soon!")
+
+    # Build selected_methods from the checkboxes
     selected_methods = []
-    
-    # Create checkboxes for each method
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.checkbox('Boltz-1'):
-            selected_methods.append("Boltz-1")
-    with col2:
-        if st.checkbox('Chai-1'):
-            selected_methods.append("Chai-1")
-    with col3:
-        st.checkbox('AlphaFold3', disabled=True, help="Coming soon!")
+    if use_boltz:
+        selected_methods.append("Boltz-1")
+    if use_chai:
+        selected_methods.append("Chai-1")
 
     if not selected_methods:
         st.warning("Please select at least one prediction method")
@@ -201,9 +252,13 @@ def structure_prediction_page():
     status_update_thread.start()
 
     if st.button("Run predictions"):
+        # Prepare UI elements
+        status_placeholder.empty()
+        with status_placeholder.container():
+            st.info("Preparing predictions...")
+        
         # Clear previous predictions that don't match current selection
         if 'prediction_history' in st.session_state:
-            # Keep track of which methods were selected in this run
             st.session_state.current_run_methods = selected_methods
             
             # Remove predictions from previous runs for methods not selected in current run
@@ -217,180 +272,77 @@ def structure_prediction_page():
             
             for key in keys_to_remove:
                 del st.session_state.prediction_history[key]
-
-        # Create log container
-        debug_log = st.expander("Debug Logs", expanded=False)
-        debug_log.info("Starting debug logs...")
         
+        # Run predictions sequentially to better handle errors
         try:
-            # Log the session state for debugging
-            debug_log.code(f"Session state keys: {list(st.session_state.keys())}")
-            debug_log.code(f"Selected methods: {selected_methods}")
-            
-            # Reset modal state before starting predictions
-            reset_modal_state()
-            
             # Get everything needed from session state once
             binder = st.session_state.selected_binder
-            binder_data = copy.deepcopy(binder)  # Create a copy to avoid thread issues
+            binder_data = copy.deepcopy(binder)  # Create a copy
             pdb_content = binder.get('pdb_content')
             
             # Debug information
-            status_placeholder.info(f"Preparing prediction for {binder_data['design_name']} with PDB content size: {len(pdb_content)} bytes")
-            print(f"Selected binder data: {binder_data.keys()}")
-            print(f"PDB content size: {len(pdb_content)} bytes")
-            
             if not pdb_content:
                 status_placeholder.error("No PDB content found in selected binder!")
                 return
-            
-            # Create tasks
-            tasks = []
-            if "Boltz-1" in selected_methods:
-                status_placeholder.info("Adding Boltz-1 prediction task")
-                debug_log.info("Boltz-1 prediction details will appear here after execution")
-                tasks.append(('boltz', run_boltz_prediction, binder_data, pdb_content, task_queue))
-            if "Chai-1" in selected_methods:
-                status_placeholder.info("Adding Chai-1 prediction task")
-                tasks.append(('chai', run_chai_prediction, binder_data, pdb_content))
-            
-            # Initialize status message
-            status_placeholder.info("Starting predictions...")
             
             # Initialize session state for prediction history if needed
             if 'prediction_history' not in st.session_state:
                 st.session_state.prediction_history = {}
             
-            # Track progress in the main thread
-            completed_tasks = []
-            
-            # When setting up prediction tasks, save the selected methods
-            st.session_state.selected_methods = selected_methods
-            
-            # Run predictions in parallel
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as executor:
-                # Submit all tasks with the additional arguments
-                future_to_task = {}
-                for task_id, task_func, *args in tasks:
-                    if task_id == 'boltz':
-                        # Boltz task with queue
-                        future = executor.submit(task_func, *args)
-                    else:
-                        # Other tasks without queue
-                        future = executor.submit(task_func, args[0], args[1]) 
-                    future_to_task[future] = (task_id, task_func)
-                
-                # Process results as they complete
-                for future in concurrent.futures.as_completed(future_to_task):
-                    task_id, task_func = future_to_task[future]
-                    try:
-                        result = future.result()
-                        method = result.get('method', task_id)
-                        
-                        # Update the status from the main thread
-                        if result['success']:
-                            design_name = result['design_name']
-                            
-                            # Store successful prediction
-                            prediction_id = f"{task_id}_{design_name}"
-                            st.session_state.prediction_history[prediction_id] = {
-                                'timestamp': datetime.now().isoformat(),
-                                'method': method,
-                                'design_name': design_name,
-                                'cif_content': result['cif_content']
-                            }
-                            
-                            # Add to completed tasks
-                            completed_tasks.append(f"{method} prediction complete for {design_name}")
-                            
-                            # Update status message
-                            status_text = "\n".join(completed_tasks)
-                            status_placeholder.success(status_text)
-                        else:
-                            error_msg = result.get('error', 'Unknown error')
-                            # Make errors more prominent
-                            status_placeholder.error(f"Error in {method} prediction: {error_msg}")
-                            # Log the error for debugging
-                            print(f"PREDICTION ERROR for {method}: {error_msg}")
-                    except Exception as e:
-                        status_placeholder.error(f"Error processing {task_id} result: {str(e)}")
-                        import traceback
-                        traceback_text = traceback.format_exc()
-                        print(f"EXCEPTION in {task_id}: {traceback_text}")
-                        status_placeholder.error(f"Stack trace: {traceback_text}")
-            
-            # At the end of your prediction processing
-            if st.session_state.prediction_history:
-                # Only navigate if we have SUCCESSFUL predictions
-                has_successful_boltz = any(
-                    v['method'] == 'Boltz-1' and v.get('cif_content') 
-                    for k, v in st.session_state.prediction_history.items() 
-                    if k.startswith('boltz_')
-                )
-                
-                has_successful_chai = any(
-                    v['method'] == 'Chai-1' and v.get('cif_content')
-                    for k, v in st.session_state.prediction_history.items()
-                    if k.startswith('chai_')
-                )
-                
-                # Only navigate if we have the methods we requested
-                should_navigate = True
-                if "Boltz-1" in selected_methods and not has_successful_boltz:
-                    status_placeholder.warning("Waiting for Boltz-1 prediction to complete...")
-                    should_navigate = False
-                    
-                if "Chai-1" in selected_methods and not has_successful_chai:
-                    status_placeholder.warning("Waiting for Chai-1 prediction to complete...")
-                    should_navigate = False
-                
-                if should_navigate:
-                    results_placeholder.success("All selected predictions completed!")
-                    # Use session state to trigger navigation on next rerun
-                    st.session_state.navigate_to = "pages/04_results_dashboard.py"
-                    st.rerun()
-                
-            # After predictions complete, log results
-            debug_log.info("Prediction summary:")
-            if 'prediction_history' in st.session_state:
-                for key, value in st.session_state.prediction_history.items():
-                    debug_log.code(f"Prediction: {key}\n" + 
-                                  f"  Method: {value.get('method')}\n" +
-                                  f"  Design: {value.get('design_name')}\n" +
-                                  f"  Success: {'Yes' if 'cif_content' in value and value['cif_content'] else 'No'}\n" +
-                                  f"  CIF size: {len(value.get('cif_content', b''))} bytes")
-                    
-                    # Show Boltz YAML input for each Boltz-1 prediction
-                    if value.get('method') == 'Boltz-1':
-                        yaml_content = get_latest_yaml_content()
-                        debug_log.subheader("Boltz-1 YAML Input Used")
-                        debug_log.code(yaml_content)
-            else:
-                debug_log.warning("No prediction_history in session_state!")
-                
-            # In the debug log section, add this:
-            debug_log.info("Current run methods:")
-            debug_log.code(selected_methods)
-            debug_log.info("Previous predictions:")
-            if 'prediction_history' in st.session_state:
-                for key, value in st.session_state.prediction_history.items():
-                    debug_log.code(f"Key: {key}, Method: {value.get('method')}")
-                
-            # Add this to show the YAML that will be used
+            # Run Boltz-1 prediction first if selected
             if "Boltz-1" in selected_methods:
-                debug_log.subheader("Boltz-1 YAML Template")
-                debug_log.info("YAML will be generated during execution, check debug logs after prediction completes")
+                with status_placeholder.container():
+                    st.info("Running Boltz-1 prediction...")
                 
-            # Add advanced options section with expander
-            with st.expander("Advanced Boltz Options"):
-                use_msa_server = st.checkbox("Use MSA Server", value=True, 
-                                            help="Generate MSA using mmseqs2 server")
+                boltz_result = run_boltz_prediction(binder_data, pdb_content, task_queue)
                 
-                # Store settings in session state
-                st.session_state.boltz_options = {
-                    "use_msa_server": use_msa_server
-                }
+                if not boltz_result['success']:
+                    status_placeholder.error(f"❌ Boltz-1 prediction failed: {boltz_result.get('error', 'Unknown error')}")
+                    # Stop all predictions if Boltz fails
+                    return
+                else:
+                    # Store successful prediction
+                    prediction_id = f"boltz_{boltz_result['design_name']}"
+                    st.session_state.prediction_history[prediction_id] = {
+                        'timestamp': datetime.now().isoformat(),
+                        'method': 'Boltz-1',
+                        'design_name': boltz_result['design_name'],
+                        'cif_content': boltz_result['cif_content']
+                    }
+                    with status_placeholder.container():
+                        st.success("✅ Boltz-1 prediction completed successfully")
+            
+            # Run Chai-1 prediction if selected
+            if "Chai-1" in selected_methods:
+                with status_placeholder.container():
+                    st.info("Running Chai-1 prediction...")
                 
+                chai_result = run_chai_prediction(binder_data, pdb_content)
+                
+                if not chai_result['success']:
+                    status_placeholder.error(f"❌ Chai-1 prediction failed: {chai_result.get('error', 'Unknown error')}")
+                    # Continue with other results if available
+                else:
+                    # Store successful prediction
+                    prediction_id = f"chai_{chai_result['design_name']}"
+                    st.session_state.prediction_history[prediction_id] = {
+                        'timestamp': datetime.now().isoformat(),
+                        'method': 'Chai-1',
+                        'design_name': chai_result['design_name'],
+                        'cif_content': chai_result['cif_content']
+                    }
+                    with status_placeholder.container():
+                        st.success("✅ Chai-1 prediction completed successfully")
+            
+            # Check if we have any successful predictions
+            if any(v.get('cif_content') for v in st.session_state.prediction_history.values()):
+                results_placeholder.success("At least one prediction completed successfully!")
+                # Navigate to results page
+                st.session_state.navigate_to = "pages/04_results_dashboard.py"
+                st.rerun()
+            else:
+                status_placeholder.error("All structure predictions failed.")
+        
         except Exception as e:
             status_placeholder.error(f"Error in prediction process: {str(e)}")
             import traceback
