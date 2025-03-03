@@ -10,6 +10,8 @@ import concurrent.futures
 import threading
 import queue
 import copy
+import os
+import numpy as np
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
@@ -311,6 +313,47 @@ def structure_prediction_page():
                     }
                     with status_placeholder.container():
                         st.success("✅ Boltz-1 prediction completed successfully")
+                    
+                    # Show PAE debugging information after successful prediction
+                    with st.expander("Boltz Modal Debug Output", expanded=False):
+                        st.subheader("Modal Execution Logs")
+                        
+                        # Get the logs from Modal (if available)
+                        try:
+                            from modal.functions import FunctionCall
+                            from modal import Client
+                            
+                            client = Client()
+                            app = client.apps.get("boltz1-standard")
+                            
+                            # Try to get recent function calls
+                            calls = list(app.functions["boltz_inference"].function_calls.list(limit=5))
+                            
+                            if calls:
+                                # Show the most recent call
+                                latest_call = calls[0]
+                                st.write(f"Latest call ID: {latest_call.id}")
+                                st.write(f"Status: {latest_call.status}")
+                                
+                                # Get logs
+                                logs = list(latest_call.logs())
+                                
+                                # Display logs with PAE-related information highlighted
+                                log_text = ""
+                                for entry in logs:
+                                    log_line = entry.data.decode('utf-8')
+                                    log_text += log_line + "\n"
+                                    
+                                    # Highlight PAE-related lines
+                                    if "pae" in log_line.lower() or "predicted_aligned_error" in log_line.lower():
+                                        st.write(f"**PAE Info:** {log_line.strip()}")
+                                
+                                # Show full logs in a text area
+                                st.text_area("Full Logs", log_text, height=300)
+                            else:
+                                st.warning("No recent Boltz function calls found")
+                        except Exception as e:
+                            st.error(f"Error fetching Modal logs: {str(e)}")
             
             # Run Chai-1 prediction if selected
             if "Chai-1" in selected_methods:
@@ -349,6 +392,31 @@ def structure_prediction_page():
             status_placeholder.error(f"Error in prediction process: {str(e)}")
             import traceback
             status_placeholder.error(f"Traceback: {traceback.format_exc()}")
+
+    # After running a prediction and getting back the result:
+    st.subheader("PAE File Status Check")
+    design_name = selected_methods[0]  # Assuming the first method is selected
+    expected_pae_path = f"output/boltz_{design_name}/pae_{design_name}_model_0.npz" 
+
+    if os.path.exists(expected_pae_path):
+        st.success(f"✅ PAE file found at: {expected_pae_path}")
+        try:
+            with np.load(expected_pae_path) as pae_data:
+                st.write(f"PAE file keys: {list(pae_data.keys())}")
+                if 'predicted_aligned_error' in pae_data:
+                    st.write(f"PAE matrix shape: {pae_data['predicted_aligned_error'].shape}")
+        except Exception as e:
+            st.error(f"Error reading PAE file: {str(e)}")
+    else:
+        st.error(f"❌ PAE file not found at: {expected_pae_path}")
+        
+        # Show all files in the output directory
+        output_dir = Path("output")
+        if output_dir.exists():
+            all_files = list(output_dir.glob("**/*.*"))
+            st.write(f"Found {len(all_files)} files in output directory:")
+            for file in all_files[:20]:  # Show first 20 files
+                st.write(f"  - {file}")
 
 def monitor_prediction_status(q, status_placeholder, yaml_placeholder):
     """Monitor prediction status messages from the queue"""

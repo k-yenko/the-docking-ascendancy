@@ -56,4 +56,19 @@ def create_yaml_content(pdb_path, design_seq=None):
     global latest_yaml_content
     latest_yaml_content = yaml_string
     
-    return yaml_string 
+    return yaml_string
+
+def create_yaml_content_with_pae(pdb_path, seq):
+    """Create Boltz input YAML content with PAE configuration
+    
+    Based on Boltz documentation, we should be able to configure PAE output
+    either via the --write_full_pae flag or in the YAML file directly.
+    """
+    # Add write_full_pae: true to the YAML configuration
+    yaml = f"""
+name: input
+pdb: {pdb_path}
+sequence: {seq}
+write_full_pae: true
+"""
+    return yaml 

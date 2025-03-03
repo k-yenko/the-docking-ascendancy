@@ -54,7 +54,7 @@ def main(
     download_model.remote(force_download)
 
     if input_yaml_path is None:
-        input_yaml_path = here / "test_input.yaml"
+        input_yaml_path = here / "test.yaml"
     input_yaml = input_yaml_path.read_text()
 
     msas = find_msas(input_yaml_path)
@@ -134,15 +134,19 @@ def boltz1_inference(
     args = shlex.split(args)
 
     print(f"🧬 predicting structure using boltz model from {models_dir}")
+    cmd = [
+        "boltz", "predict", input_path,
+        "--out_dir", "boltz_results",
+        "--cache", str(models_dir),
+        "--write_full_pae"
+    ] + args
     subprocess.run(
-        ["boltz", "predict", input_path, "--cache", str(models_dir)] + args,
+        cmd,
         check=True,
     )
 
     print("🧬 packaging up outputs")
-    output_bytes = package_outputs(
-        f"boltz_results_{input_path.with_suffix('').name}"
-    )
+    output_bytes = package_outputs("boltz_results")
 
     return output_bytes
 

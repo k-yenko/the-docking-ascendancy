@@ -12,6 +12,11 @@ import nglview as nv
 import numpy as np
 from streamlit_app.utils.boltz_utils import latest_yaml_content
 from streamlit_app.utils.common_utils import extract_sequences_from_pdb
+from streamlit_app.utils.structure_metrics import (
+    load_structure, extract_confidence_metrics, create_pae_plot,
+    calculate_bsa, count_interface_hbonds
+)
+import os
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
@@ -230,10 +235,24 @@ def results_dashboard():
                  on_click=lambda: st.switch_page("pages/03_structure_prediction.py"))
         return
     
-    if 'selected_methods' in st.session_state:
-        selected_methods = st.session_state.selected_methods
-    else:
-        selected_methods = []  # Default if none were selected
+    # Debug Information in expandable section
+    with st.expander("Debug Information"):
+        st.write("Prediction History Keys:")
+        if 'prediction_history' in st.session_state:
+            for key, value in st.session_state.prediction_history.items():
+                st.write(f"Key: {key}, Method: {value.get('method')}")
+                cif_content = value.get('cif_content')
+                if cif_content:
+                    cif_size = len(cif_content) if isinstance(cif_content, str) else len(cif_content) if isinstance(cif_content, bytes) else 0
+                    st.write(f"  CIF Content Size: {cif_size} bytes")
+                    if isinstance(cif_content, bytes):
+                        st.write(f"  CIF Content Type: bytes")
+                    else:
+                        st.write(f"  CIF Content Type: {type(cif_content)}")
+                else:
+                    st.write("  CIF Content: None")
+        else:
+            st.write("No prediction history in session state")
     
     # Group predictions by design name
     predictions = st.session_state.prediction_history
@@ -248,100 +267,231 @@ def results_dashboard():
     for design_name, methods in design_predictions.items():
         st.header(f"Design: {design_name}")
         
-        # Structure visibility controls
-        st.subheader("Structure Controls")
-        col1, col2 = st.columns(2)
-        with col1:
-            show_boltz = st.checkbox("Show Boltz-1", 
-                                    value="Boltz-1" in selected_methods)
-        with col2:
-            show_chai = st.checkbox("Show Chai-1", 
-                                   value="Chai-1" in selected_methods)
-        
-        # Get structures based on visibility
-        structures = {}
-        if show_boltz:
-            if 'prediction_history' in st.session_state:
-                # Find the boltz prediction (if any)
-                boltz_predictions = [v for k, v in st.session_state.prediction_history.items() 
-                                     if k.startswith('boltz_') and v['method'] == 'Boltz-1']
-                if boltz_predictions:
-                    boltz_result = boltz_predictions[0]
-                    structures["Boltz-1"] = boltz_result['cif_content'].decode() if isinstance(boltz_result['cif_content'], bytes) else boltz_result['cif_content']
-        if show_chai:
-            if 'prediction_history' in st.session_state:
-                # Find the chai prediction (if any)
-                chai_predictions = [v for k, v in st.session_state.prediction_history.items() 
-                                   if k.startswith('chai_') and v['method'] == 'Chai-1']
-                if chai_predictions:
-                    chai_result = chai_predictions[0]
-                    structures["Chai-1"] = chai_result['cif_content'].decode() if isinstance(chai_result['cif_content'], bytes) else chai_result['cif_content']
-        
-        if len(structures) == 2:
-            # Align and combine both structures
-            combined_cif, rmsd = align_and_combine_structures(
-                structures["Boltz-1"],
-                structures["Chai-1"]
-            )
-            st.info(f"RMSD between structures: {rmsd:.2f} Å")
-        elif len(structures) == 1:
-            # Show single structure with correct chain ID
-            method = next(iter(structures.keys()))
-            structure = structures[method]
-            is_boltz = method == "Boltz-1"
-            combined_cif, _ = align_and_combine_structures(structure, is_boltz=is_boltz)
-        else:
-            st.warning("Please select at least one structure to display")
-            continue
-        
-        # Save combined CIF to temporary file
-        with tempfile.NamedTemporaryFile(suffix='.cif', mode='w+', delete=False) as tmp:
-            tmp.write(combined_cif)
-            tmp_path = tmp.name
-        
-        # Display combined structure in Mol*
-        st.subheader("Structure Visualization")
-        st.write("""
-    **Structure Colors:**
-    - Boltz-1: Target in green ribbon, binder in green ball-stick
-    - Chai-1: Target in blue ribbon, binder in blue ball-stick
-    
-    Use the visibility controls in Mol* to show/hide individual chains.
-    """)
-        st_molstar(tmp_path, key=f"molstar_{design_name}_{show_boltz}_{show_chai}")
-        
-        # Add download buttons for individual structures
-        st.subheader("Download Structures")
-        cols = st.columns(len(methods))
-        for i, (method, pred_data) in enumerate(methods.items()):
-            with cols[i]:
-                st.download_button(
-                    f"Download {method} Structure",
-                    pred_data['cif_content'],
-                    file_name=f"{design_name}_{method}.cif",
-                    mime="chemical/x-cif"
-                )
+        # Create a tab for each prediction method
+        if len(methods) > 0:
+            method_tabs = st.tabs(list(methods.keys()))
+            
+            # Display each method in its own tab
+            for i, (method, pred_data) in enumerate(methods.items()):
+                with method_tabs[i]:
+                    # Get CIF content
+                    cif_content = pred_data['cif_content']
+                    cif_str = cif_content.decode() if isinstance(cif_content, bytes) else cif_content
+                    
+                    # Structure info and metrics
+                    metrics_col1, metrics_col2 = st.columns(2)
+                    with metrics_col1:
+                        st.subheader("Structure Information")
+                        st.write(f"Method: {method}")
+                        st.write(f"Prediction Time: {pred_data.get('timestamp', 'N/A')}")
+                        
+                        # Download button
+                        st.download_button(
+                            f"Download {method} Structure",
+                            cif_content,
+                            file_name=f"{design_name}_{method}.cif",
+                            mime="chemical/x-cif"
+                        )
+                    
+                    with metrics_col2:
+                        st.subheader("Quality Metrics")
+                        
+                        # Try to load confidence data from prediction output files
+                        confidence_data = extract_confidence_metrics(design_name, method)
+                        
+                        # Display pTM and ipTM scores if available
+                        if confidence_data and 'pTM' in confidence_data:
+                            st.write(f"pTM Score: {confidence_data['pTM']:.3f}")
+                        elif confidence_data and 'ptm' in confidence_data:
+                            st.write(f"pTM Score: {confidence_data['ptm']:.3f}")
+                        else:
+                            st.write("pTM Score: Not available")
+                            
+                        if confidence_data and 'ipTM' in confidence_data:
+                            st.write(f"ipTM Score: {confidence_data['ipTM']:.3f}")
+                        elif confidence_data and 'iptm' in confidence_data:
+                            st.write(f"ipTM Score: {confidence_data['iptm']:.3f}")
+                        else:
+                            st.write("ipTM Score: Not available")
+                        
+                        # Calculate BSA and H-bonds on the fly
+                        try:
+                            structure = load_structure(cif_str)
+                            bsa = calculate_bsa(structure)
+                            hbonds = count_interface_hbonds(structure)
+                            
+                            st.write(f"Buried Surface Area: {bsa:.1f} Å²")
+                            st.write(f"Interface H-Bonds: {hbonds}")
+                        except Exception as e:
+                            st.write("Metrics calculation failed")
+                            st.write(f"Error: {str(e)}")
+                    
+                    # Structure visualization
+                    st.subheader("Structure Visualization")
+                    
+                    # Write to temp file for visualization
+                    with tempfile.NamedTemporaryFile(suffix='.cif', mode='w+', delete=False) as tmp:
+                        tmp.write(cif_str)
+                        tmp_path = tmp.name
+                    
+                    # Display structure
+                    st_molstar(tmp_path, key=f"molstar_{design_name}_{method}")
+                    
+                    # PAE Plot
+                    st.subheader("Predicted Aligned Error (PAE)")
 
-    # Add this debug section at the start of the dashboard
-    st.subheader("Debug Information")
-    with st.expander("Session State Debug"):
-        st.write("Prediction History Keys:")
-        if 'prediction_history' in st.session_state:
-            for key, value in st.session_state.prediction_history.items():
-                st.write(f"Key: {key}, Method: {value.get('method')}")
-                # Check if the CIF content is valid
-                cif_content = value.get('cif_content')
-                if cif_content:
-                    cif_size = len(cif_content) if isinstance(cif_content, str) else len(cif_content) if isinstance(cif_content, bytes) else 0
-                    st.write(f"  CIF Content Size: {cif_size} bytes")
-                    if isinstance(cif_content, bytes):
-                        st.write(f"  CIF Content Type: bytes")
+                    # More flexible PAE file search - look for any pae*.npz files
+                    output_dir = Path("output")
+                    pae_files = []
+
+                    # Search in multiple possible locations with a simple pattern
+                    search_dirs = [
+                        output_dir / f"boltz_{design_name}",  # The main output directory
+                        output_dir / "predictions" / "input",  # Where boltz1.py puts it
+                        output_dir                            # Root output directory
+                    ]
+
+                    # Look for any file starting with "pae" and ending with ".npz"
+                    for search_dir in search_dirs:
+                        if search_dir.exists():
+                            pae_files.extend(list(search_dir.glob("pae*.npz")))
+
+                    # To track if we've found usable PAE data
+                    found_usable_pae = False
+                    pae_matrix = None
+
+                    # Debug information in expandable section
+                    with st.expander("PAE Data Debugging Information"):
+                        st.write("### PAE Data Lookup Process")
+                        
+                        if pae_files:
+                            st.write(f"Found {len(pae_files)} potential PAE files:")
+                            for i, path in enumerate(pae_files):
+                                st.success(f"✅ PAE file #{i+1} found: {path}")
+                                try:
+                                    with np.load(path) as pae_data:
+                                        st.write(f"PAE file contains keys: {list(pae_data.keys())}")
+                                        if 'predicted_aligned_error' in pae_data:
+                                            pae_matrix_temp = pae_data['predicted_aligned_error']
+                                            st.write(f"PAE matrix shape: {pae_matrix_temp.shape}")
+                                            
+                                            # Store the first valid PAE matrix we find
+                                            if not found_usable_pae:
+                                                pae_matrix = pae_matrix_temp
+                                                found_usable_pae = True
+                                                st.write("✅ Using this PAE matrix for visualization")
+                                        else:
+                                            st.warning(f"PAE file doesn't contain 'predicted_aligned_error' key")
+                                except Exception as e:
+                                    st.error(f"Error reading PAE file: {str(e)}")
+                        else:
+                            st.warning("No PAE files found in any location")
+                        
+                        # Show confidence data
+                        st.write("\n### Confidence Data Contents")
+                        if confidence_data:
+                            st.write("Keys in confidence data:", list(confidence_data.keys()))
+                            keys_to_check = ['pae', 'predicted_aligned_error']
+                            found_key = None
+                            for key in keys_to_check:
+                                if key in confidence_data:
+                                    found_key = key
+                                    pae_array = np.array(confidence_data[key])
+                                    st.write(f"PAE data found in key '{key}'")
+                                    st.write(f"Shape: {pae_array.shape}")
+                                    break
+                            
+                            if not found_key:
+                                st.warning("No PAE data found in confidence data")
+                        else:
+                            st.error("No confidence data loaded")
+
+                    # Use the PAE data we found (if any)
+                    if found_usable_pae and pae_matrix is not None:
+                        st.success(f"Using PAE data from file: shape {pae_matrix.shape}")
+                        pae_plot = create_pae_plot(pae_matrix)
+                        if pae_plot is not None:
+                            st.image(pae_plot, use_container_width=True)
+                        else:
+                            st.error("Failed to generate PAE plot from data")
+                    # If no PAE file was found, check confidence data
+                    elif confidence_data:
+                        # Try different possible keys for PAE data
+                        keys_to_check = ['pae', 'predicted_aligned_error']
+                        for key in keys_to_check:
+                            if key in confidence_data:
+                                pae_data = np.array(confidence_data[key])
+                                st.success(f"Using PAE data from confidence file (key: {key})")
+                                
+                                pae_plot = create_pae_plot(pae_data)
+                                if pae_plot is not None:
+                                    st.image(pae_plot, use_container_width=True)
+                                    break
+                                else:
+                                    st.error("Failed to generate PAE plot")
+                        else:  # This else belongs to the for loop (executes if no break occurred)
+                            st.warning("No PAE data found in confidence data")
                     else:
-                        st.write(f"  CIF Content Type: {type(cif_content)}")
-                else:
-                    st.write("  CIF Content: None")
+                        st.warning("No PAE data available.")
+                        st.info(f"""To generate PAE data for this design:
+                        
+1. When running through the web app:
+   - The PAE matrix is now automatically requested with `--write_full_pae`
+   - Re-run the prediction for {design_name} to generate fresh PAE data
+
+2. If running Boltz locally:
+   ```bash
+   boltz predict {design_name}.yaml --write_full_pae --out_dir output/boltz_{design_name}
+   ```
+   """)
+
         else:
-            st.write("No prediction history in session state")
+            st.warning("No predictions available for this design")
+        
+        # Comparison section (only if multiple methods)
+        if len(methods) > 1:
+            st.subheader("Structure Comparison")
+            st.info("Select two methods to compare their structures and calculate RMSD")
+            
+            # Structure selection for comparison
+            comparison_col1, comparison_col2 = st.columns(2)
+            with comparison_col1:
+                method1 = st.selectbox("First Structure", list(methods.keys()), key=f"comp1_{design_name}")
+            with comparison_col2:
+                method2 = st.selectbox("Second Structure", list(methods.keys()), key=f"comp2_{design_name}")
+            
+            if method1 != method2:
+                # Get structures
+                cif1 = methods[method1]['cif_content']
+                cif1_str = cif1.decode() if isinstance(cif1, bytes) else cif1
+                
+                cif2 = methods[method2]['cif_content']
+                cif2_str = cif2.decode() if isinstance(cif2, bytes) else cif2
+                
+                # Align and combine structures for comparison
+                try:
+                    combined_cif, rmsd = align_and_combine_structures(cif1_str, cif2_str)
+                    st.success(f"RMSD between {method1} and {method2}: {rmsd:.2f} Å")
+                    
+                    # Write to temp file for visualization
+                    with tempfile.NamedTemporaryFile(suffix='.cif', mode='w+', delete=False) as tmp:
+                        tmp.write(combined_cif)
+                        tmp_path = tmp.name
+                    
+                    # Display combined structure with color coding
+                    st.write(f"""
+                    **Structure Colors:**
+                    - {method1}: Target in green ribbon, binder in green stick
+                    - {method2}: Target in blue ribbon, binder in blue stick
+                    
+                    Use the visibility controls in Mol* to show/hide individual chains.
+                    """)
+                    st_molstar(tmp_path, key=f"molstar_comp_{design_name}_{method1}_{method2}")
+                    
+                except Exception as e:
+                    st.error(f"Error comparing structures: {str(e)}")
+            else:
+                st.warning("Please select different methods to compare")
 
 if __name__ == "__main__":
     results_dashboard() 
