@@ -1,10 +1,10 @@
 # The Docking Ascendancy (wip)
 A Modal-powered platform for binder assembly and structure prediction, deployed as an accessible web interface. Design binders with BindCraft, predict structures with Boltz-1, Chai-1 and AlphaFold3, and analyze results through interactive visualization and alignment tools.
 
-*Only the strongest ligands shall ascend.*
+*Only the strongest binders shall ascend.*
 
 ## Overview
-The Docking Ascendancy aims to host trials for protein-ligand pairs. The platform begins with BindCraft for de novo binder assembly, followed by structure prediction comparisons across multiple models (AlphaFold3, Chai-1, and Boltz-1), providing interactive visualization and quantitative analysis of structural differences. This end-to-end workflow enables researchers to design novel binders and evaluate their structural predictions, with future capabilities planned for analyzing docking dynamics.
+The Docking Ascendancy aims to host trials for protein complexes. The platform begins with BindCraft for de novo binder assembly, followed by structure prediction comparisons across multiple models (AlphaFold3, Chai-1, and Boltz-1), providing interactive visualization and quantitative analysis of structural differences. This end-to-end workflow enables researchers to design novel binders and evaluate their structural predictions, with future capabilities planned for analyzing docking dynamics.
 
 ## ToDo
 
@@ -19,8 +19,7 @@ The Docking Ascendancy aims to host trials for protein-ligand pairs. The platfor
 🔍 Analysis Tools
 - [x] Basic structure visualization
 - [x] Structure alignment & RMSD
-- [ ] Add binding site analysis (Use LigUnity?! https://www.biorxiv.org/content/10.1101/2025.02.17.638554v1)
-- [ ] Implement additional metrics (TM-score, GDT)
+- [ ] Implement additional metrics (TM-score, PAE matrix, etc.)
 
 🛠️ Technical
 - [x] Set up Streamlit interface
@@ -32,13 +31,14 @@ The Docking Ascendancy aims to host trials for protein-ligand pairs. The platfor
 - [x] Implement multi-page navigation
 - [x] Create protein input page
 - [x] Add structure prediction page
-- [ ] Add output/dashboard/analysis page
+- [x] Add output/dashboard/analysis page
 
 📚 Documentation
 - [x] Basic README
 - [ ] Examples
 - [ ] Add installation guide
 - [ ] Document best practices
+- [ ] for fun: add learnings as someone who is foundationally rooted on the science side and is basically writing AI slop
 
 🔮 Future Desires
 - [ ] Implement batch processing/prediction capabilities
