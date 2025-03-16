@@ -103,61 +103,49 @@ def extract_confidence_metrics(design_name, method):
     
     return data
 
-def create_pae_plot(pae_data, figure_size=(8, 6)):
-    """Create PAE (Predicted Aligned Error) plot with improved visualization"""
-    # Check if data is None or not an array
-    if pae_data is None or not isinstance(pae_data, np.ndarray):
-        # Instead of creating dummy data, return None
-        print("No valid PAE data provided")
-        return None
+@st.cache_data
+def create_pae_plot(pae_matrix, max_size=1000):
+    """Create a PAE plot with performance optimization"""
+    import matplotlib.pyplot as plt
     
-    # Use matplotlib for visualization
-    if MATPLOTLIB_AVAILABLE:
-        # Set style
-        plt.style.use('default')
-        
-        # Create figure
-        fig, ax = plt.subplots(figsize=figure_size)
-        
-        # Plot heatmap
-        im = ax.imshow(pae_data, cmap='Blues_r', vmin=0, vmax=30, 
-                      interpolation='bilinear', aspect='equal')
-        
-        # Add colorbar
-        cbar = fig.colorbar(im, ax=ax, location='bottom', pad=0.15, 
-                           label='Expected position error (Å)')
-        
-        # Better tick spacing
-        num_residues = pae_data.shape[0]
-        tick_step = max(1, num_residues // 10)  # At most 10 ticks
-        ticks = np.arange(0, num_residues, tick_step)
-        ax.set_xticks(ticks)
-        ax.set_yticks(ticks)
-        
-        # Add labels
-        ax.set_xlabel('Residue', fontsize=12)
-        ax.set_ylabel('Aligned residue', fontsize=12)
-        
-        # Add title with data statistics
-        min_val = np.min(pae_data)
-        max_val = np.max(pae_data)
-        mean_val = np.mean(pae_data)
-        ax.set_title(f'PAE Matrix ({num_residues}×{num_residues})\n'
-                    f'min: {min_val:.2f}, max: {max_val:.2f}, mean: {mean_val:.2f}', 
-                    fontsize=12)
-        
-        # Save to BytesIO
-        buf = BytesIO()
-        plt.tight_layout()
-        plt.savefig(buf, format='png', dpi=120, bbox_inches='tight')
-        buf.seek(0)
-        plt.close(fig)
-        
-        return buf
+    # Check if matrix is too large - downsample if needed
+    orig_shape = pae_matrix.shape
+    if pae_matrix.shape[0] > max_size:
+        # Downsample very large matrices (faster rendering)
+        from skimage.transform import resize
+        scale = max_size / pae_matrix.shape[0]
+        pae_matrix = resize(pae_matrix, 
+                           (int(pae_matrix.shape[0] * scale), 
+                            int(pae_matrix.shape[1] * scale)),
+                           anti_aliasing=True)
+        print(f"Downsampled PAE matrix from {orig_shape} to {pae_matrix.shape}")
     
-    else:
-        # No fallback - either show real data or nothing
-        return None
+    # Use a more efficient Matplotlib backend
+    plt.switch_backend('Agg')
+    
+    # Create figure with viridis colormap (matching pae_visualization.png)
+    fig, ax = plt.subplots(figsize=(8, 6), dpi=100)
+    
+    # Use imshow with viridis colormap (like in test_pae_viz.py)
+    im = ax.imshow(pae_matrix, cmap='viridis')
+    
+    # Add colorbar and labels
+    plt.colorbar(im, label='PAE')
+    ax.set_title('Predicted Aligned Error (PAE)')
+    ax.set_xlabel('Residue index')
+    ax.set_ylabel('Residue index')
+    
+    # Use tight layout for better spacing
+    fig.tight_layout()
+    
+    # Convert to image bytes
+    from io import BytesIO
+    buf = BytesIO()
+    fig.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+    buf.seek(0)
+    plt.close(fig)  # Important: close the figure to free memory
+    
+    return buf
 
 def calculate_bsa(structure):
     """Calculate Buried Surface Area between chains"""
@@ -243,3 +231,149 @@ def calculate_ptm_like_score(structure):
         return 0.85  # Decent interface
     else:
         return 0.80  # Smaller interface 
+
+@st.cache_data
+def create_simple_pae_plot(pae_data):
+    """Create a simple PAE plot exactly like view_pae.py"""
+    import matplotlib.pyplot as plt
+    
+    # Use the efficient backend
+    plt.switch_backend('Agg')
+    
+    # Create a simple plot just like your view_pae.py
+    fig, ax = plt.subplots(figsize=(6, 5), dpi=100)
+    im = ax.imshow(pae_data, cmap='viridis')
+    plt.colorbar(im, label='PAE')
+    ax.set_xlabel('Residue index')
+    ax.set_ylabel('Residue index')
+    ax.set_title('Predicted Aligned Error (PAE)')
+    
+    # Convert to image
+    from io import BytesIO
+    buf = BytesIO()
+    fig.savefig(buf, format='png', dpi=100)
+    buf.seek(0)
+    plt.close(fig)
+    
+    return buf 
+
+@st.cache_data
+def create_viridis_pae_plot(pae_matrix, max_size=1000):
+    """Create a PAE plot explicitly using the viridis colormap"""
+    import matplotlib.pyplot as plt
+    
+    # Check if matrix is too large - downsample if needed
+    orig_shape = pae_matrix.shape
+    if pae_matrix.shape[0] > max_size:
+        # Downsample very large matrices (faster rendering)
+        from skimage.transform import resize
+        scale = max_size / pae_matrix.shape[0]
+        pae_matrix = resize(pae_matrix, 
+                           (int(pae_matrix.shape[0] * scale), 
+                            int(pae_matrix.shape[1] * scale)),
+                           anti_aliasing=True)
+        print(f"Downsampled PAE matrix from {orig_shape} to {pae_matrix.shape}")
+    
+    # Use a more efficient Matplotlib backend
+    plt.switch_backend('Agg')
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=(8, 6), dpi=100)
+    
+    # Explicitly use imshow with viridis colormap and set proper limits
+    im = ax.imshow(pae_matrix, cmap='viridis', origin='lower', vmin=0, vmax=30)
+    
+    # Add colorbar and labels
+    plt.colorbar(im, label='PAE (Å)')
+    ax.set_title('Predicted Aligned Error (PAE)')
+    ax.set_xlabel('Residue index')
+    ax.set_ylabel('Residue index')
+    
+    # Use tight layout for better spacing
+    fig.tight_layout()
+    
+    # Convert to image bytes
+    from io import BytesIO
+    buf = BytesIO()
+    fig.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+    buf.seek(0)
+    plt.close(fig)  # Important: close the figure to free memory
+    
+    return buf
+
+@st.cache_data
+def load_and_visualize_pae(design_name=None, specific_path=None):
+    """
+    Load PAE data from either a specific path or look in standard locations based on design name.
+    Returns the visualization as a bytes object.
+    
+    Args:
+        design_name: Name of the design to look for in standard output locations
+        specific_path: Direct path to the PAE file (overrides design_name if provided)
+    
+    Returns:
+        BytesIO object containing the plot image and the path where the data was loaded from
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from pathlib import Path
+    
+    # Define potential paths to look for PAE data
+    potential_paths = []
+    
+    # If specific path is provided, use it
+    if specific_path and os.path.exists(specific_path):
+        potential_paths.append(specific_path)
+    
+    # Add Boltz standard output paths based on design name
+    if design_name:
+        potential_paths.extend([
+            f"output/boltz_{design_name}/pae_{design_name}_model_0.npz",  # Primary location
+            f"output/{design_name}/pae_{design_name}_model_0.npz",        # Alternative location 
+        ])
+    
+    # Look for any available PAE files from previous runs if no design name specified
+    if not design_name:
+        if os.path.exists("output"):
+            for dir_name in os.listdir("output"):
+                if dir_name.startswith("boltz_") and os.path.isdir(os.path.join("output", dir_name)):
+                    design = dir_name.split("boltz_")[1]
+                    potential_paths.append(os.path.join("output", dir_name, f"pae_{design}_model_0.npz"))
+    
+    # Try to load from each path until successful
+    pae_matrix = None
+    loaded_path = None
+    errors = []
+    
+    for path in potential_paths:
+        try:
+            if os.path.exists(path):
+                print(f"Trying to load PAE from: {path}")
+                with np.load(path) as data:
+                    if 'pae' in data:
+                        pae_matrix = data['pae']
+                        loaded_path = path
+                        print(f"Successfully loaded PAE with key 'pae' from {path}")
+                        break
+                    elif 'predicted_aligned_error' in data:
+                        pae_matrix = data['predicted_aligned_error']
+                        loaded_path = path
+                        print(f"Successfully loaded PAE with key 'predicted_aligned_error' from {path}")
+                        break
+                    else:
+                        error_msg = f"No PAE data found in {path}, keys: {list(data.keys())}"
+                        print(error_msg)
+                        errors.append(error_msg)
+            else:
+                errors.append(f"Path does not exist: {path}")
+        except Exception as e:
+            error_msg = f"Error loading PAE from {path}: {str(e)}"
+            print(error_msg)
+            errors.append(error_msg)
+            continue
+    
+    if pae_matrix is None:
+        raise FileNotFoundError(f"Could not find valid PAE data in any of the expected locations: {potential_paths}. Errors: {'; '.join(errors)}")
+    
+    # Create plot with the new viridis plotting function
+    return create_viridis_pae_plot(pae_matrix), loaded_path 

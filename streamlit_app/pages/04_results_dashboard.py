@@ -4,12 +4,12 @@ import sys
 import tarfile
 import io
 import tempfile
+import numpy as np
 from streamlit_molstar import st_molstar
 from datetime import datetime
 from Bio import PDB
 from Bio.PDB import Superimposer
 import nglview as nv
-import numpy as np
 from streamlit_app.utils.boltz_utils import latest_yaml_content
 from streamlit_app.utils.common_utils import extract_sequences_from_pdb
 from streamlit_app.utils.structure_metrics import (
@@ -17,6 +17,24 @@ from streamlit_app.utils.structure_metrics import (
     calculate_bsa, count_interface_hbonds
 )
 import os
+from streamlit_app.utils.dev_config import USE_FALLBACK_PAE, FALLBACK_PAE_PATH
+from io import BytesIO
+
+# Try importing matplotlib, but don't fail if not available
+try:
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+    st.warning("Matplotlib is not installed. Some visualizations will not be available.")
+
+# Try importing nglview, but don't fail if not available
+try:
+    import nglview as nv
+    NGLVIEW_AVAILABLE = True
+except ImportError:
+    NGLVIEW_AVAILABLE = False
+    st.warning("nglview is not installed. Some 3D visualizations will not be available.")
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
@@ -233,6 +251,94 @@ def results_dashboard():
         st.info("No predictions available yet. Run some predictions first!")
         st.button("Go back to Structure Prediction", 
                  on_click=lambda: st.switch_page("pages/03_structure_prediction.py"))
+        
+        # Create columns for the standalone PAE visualization
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.header("Example Metrics")
+            st.write("When you run predictions, quality metrics will appear here:")
+            st.write("pTM Score: Example")
+            st.write("ipTM Score: Example")
+            st.write("Buried Surface Area: Example")
+            st.write("Interface H-Bonds: Example")
+        
+        with col2:
+            st.header("PAE Visualization")
+            st.write("Sample PAE data from Boltz results:")
+            
+            try:
+                from streamlit_app.utils.structure_metrics import create_viridis_pae_plot
+                
+                # Look for any available PAE files from previous runs
+                pae_found = False
+                pae_dirs = []
+                
+                # Look in output directory for any boltz_* directories
+                if os.path.exists("output"):
+                    for dir_name in os.listdir("output"):
+                        if dir_name.startswith("boltz_") and os.path.isdir(os.path.join("output", dir_name)):
+                            pae_dirs.append(os.path.join("output", dir_name))
+                
+                # Check each directory for PAE files
+                for pae_dir in pae_dirs:
+                    design_name = pae_dir.split("boltz_")[1]
+                    pae_path = os.path.join(pae_dir, f"pae_{design_name}_model_0.npz")
+                    
+                    if os.path.exists(pae_path):
+                        # Show cleaner PAE source info with tooltip
+                        with st.container():
+                            st.markdown(f"<span title='{pae_path}'>Using PAE from previous run ({design_name}) ℹ️</span>", unsafe_allow_html=True)
+                        
+                        with np.load(pae_path) as data:
+                            key_used = None
+                            if 'pae' in data:
+                                pae_matrix = data['pae']
+                                key_used = 'pae'
+                            elif 'predicted_aligned_error' in data:
+                                pae_matrix = data['predicted_aligned_error']
+                                key_used = 'predicted_aligned_error'
+                            
+                            if key_used:
+                                pae_image = create_viridis_pae_plot(pae_matrix)
+                                st.image(pae_image, caption=f"PAE from {design_name}")
+                                pae_found = True
+                                break
+                
+                # Show error if no PAE files found
+                if not pae_found:
+                    st.warning("No PAE files found from previous predictions.")
+                    st.info("Run a Boltz prediction to generate PAE data for visualization.")
+                    
+                    # Show debug info about where we looked
+                    with st.expander("Debug Info"):
+                        if pae_dirs:
+                            st.write(f"Checked these directories: {pae_dirs}")
+                        else:
+                            st.write("No Boltz output directories found in 'output/'")
+                
+            except Exception as e:
+                st.error("Error loading PAE data")
+                st.info(f"Details: {str(e)}")
+                
+        # Add explanation of PAE
+        with st.expander("What is PAE (Predicted Aligned Error)?"):
+            st.write("""
+            Predicted Aligned Error (PAE) is a confidence metric that estimates the expected distance error 
+            between each pair of residues in the predicted structure.
+            
+            - **Lower values (dark purple)** indicate higher confidence in the relative position of the residues.
+            - **Higher values (yellow/green)** indicate lower confidence.
+            
+            PAE is particularly useful for identifying:
+            - Flexible regions within the protein
+            - Domain boundaries
+            - Overall confidence in the predicted structure
+            
+            A good prediction typically shows distinct blocks of dark purple along the diagonal, 
+            representing well-structured domains.
+            """)
+        
         return
     
     # Debug Information in expandable section
@@ -278,22 +384,11 @@ def results_dashboard():
                     cif_content = pred_data['cif_content']
                     cif_str = cif_content.decode() if isinstance(cif_content, bytes) else cif_content
                     
-                    # Structure info and metrics
+                    # Create metrics and PAE visualization section
                     metrics_col1, metrics_col2 = st.columns(2)
-                    with metrics_col1:
-                        st.subheader("Structure Information")
-                        st.write(f"Method: {method}")
-                        st.write(f"Prediction Time: {pred_data.get('timestamp', 'N/A')}")
-                        
-                        # Download button
-                        st.download_button(
-                            f"Download {method} Structure",
-                            cif_content,
-                            file_name=f"{design_name}_{method}.cif",
-                            mime="chemical/x-cif"
-                        )
                     
-                    with metrics_col2:
+                    # Left column: Quality metrics
+                    with metrics_col1:
                         st.subheader("Quality Metrics")
                         
                         # Try to load confidence data from prediction output files
@@ -324,9 +419,72 @@ def results_dashboard():
                             st.write(f"Interface H-Bonds: {hbonds}")
                         except Exception as e:
                             st.write("Metrics calculation failed")
-                            st.write(f"Error: {str(e)}")
                     
-                    # Structure visualization
+                    # Right column: PAE visualization
+                    with metrics_col2:
+                        st.subheader("PAE")
+                        
+                        # Add expandable PAE debug information
+                        with st.expander("PAE File Debug Info", expanded=False):
+                            st.write("Checking for PAE files in these locations:")
+                            debug_paths = [
+                                f"output/boltz_{design_name}/pae_{design_name}_model_0.npz",
+                                f"output/{design_name}/pae_{design_name}_model_0.npz",
+                            ]
+                            
+                            for debug_path in debug_paths:
+                                if os.path.exists(debug_path):
+                                    st.write(f"✅ Found: {debug_path} ({os.path.getsize(debug_path)} bytes)")
+                                    try:
+                                        with np.load(debug_path) as data:
+                                            st.write(f"   Keys: {list(data.keys())}")
+                                    except Exception as e:
+                                        st.write(f"   Error loading: {str(e)}")
+                                else:
+                                    st.write(f"❌ Not found: {debug_path}")
+                        
+                        # Automatically display PAE visualization
+                        try:
+                            from streamlit_app.utils.structure_metrics import create_viridis_pae_plot
+                            
+                            # Look for design-specific PAE file first (from actual prediction run)
+                            pae_found = False
+                            pae_file_paths = [
+                                f"output/boltz_{design_name}/pae_{design_name}_model_0.npz",  # Primary location from Boltz
+                                f"output/{design_name}/pae_{design_name}_model_0.npz",        # Alternative location
+                            ]
+                            
+                            for pae_path in pae_file_paths:
+                                if os.path.exists(pae_path):
+                                    # Show cleaner PAE source info with tooltip
+                                    with st.container():
+                                        st.markdown(f"<span title='{pae_path}'>Using PAE data from this prediction ℹ️</span>", unsafe_allow_html=True)
+                                    
+                                    with np.load(pae_path) as data:
+                                        if 'pae' in data:
+                                            pae_matrix = data['pae']
+                                            pae_image = create_viridis_pae_plot(pae_matrix)
+                                            st.image(pae_image, caption="Predicted Aligned Error (PAE)")
+                                            pae_found = True
+                                            break
+                                        elif 'predicted_aligned_error' in data:
+                                            pae_matrix = data['predicted_aligned_error']
+                                            pae_image = create_viridis_pae_plot(pae_matrix)
+                                            st.image(pae_image, caption="Predicted Aligned Error (PAE)")
+                                            pae_found = True
+                                            break
+                            
+                            if not pae_found:
+                                st.error("PAE data not found for this prediction.")
+                                st.info("The PAE file should be generated by Boltz and saved to the output directory. Check the debug information above for more details.")
+                                
+                        except Exception as e:
+                            st.error("Error loading or displaying PAE data.")
+                            st.info(f"Details: {str(e)}")
+                            with st.expander("Technical Details"):
+                                st.code(str(e))
+                    
+                    # Structure visualization first
                     st.subheader("Structure Visualization")
                     
                     # Write to temp file for visualization
@@ -337,161 +495,97 @@ def results_dashboard():
                     # Display structure
                     st_molstar(tmp_path, key=f"molstar_{design_name}_{method}")
                     
-                    # PAE Plot
-                    st.subheader("Predicted Aligned Error (PAE)")
-
-                    # More flexible PAE file search - look for any pae*.npz files
-                    output_dir = Path("output")
-                    pae_files = []
-
-                    # Search in multiple possible locations with a simple pattern
-                    search_dirs = [
-                        output_dir / f"boltz_{design_name}",  # The main output directory
-                        output_dir / "predictions" / "input",  # Where boltz1.py puts it
-                        output_dir                            # Root output directory
-                    ]
-
-                    # Look for any file starting with "pae" and ending with ".npz"
-                    for search_dir in search_dirs:
-                        if search_dir.exists():
-                            pae_files.extend(list(search_dir.glob("pae*.npz")))
-
-                    # To track if we've found usable PAE data
-                    found_usable_pae = False
-                    pae_matrix = None
-
-                    # Debug information in expandable section
-                    with st.expander("PAE Data Debugging Information"):
-                        st.write("### PAE Data Lookup Process")
+                    # Structure information below the visualization
+                    st.subheader("Structure Information")
+                    
+                    # Format prediction time as duration (if possible)
+                    try:
+                        # Try to extract a duration from the timestamp format
+                        # Most timestamps are stored as ISO format strings
+                        timestamp = pred_data.get('timestamp', 'N/A')
                         
-                        if pae_files:
-                            st.write(f"Found {len(pae_files)} potential PAE files:")
-                            for i, path in enumerate(pae_files):
-                                st.success(f"✅ PAE file #{i+1} found: {path}")
-                                try:
-                                    with np.load(path) as pae_data:
-                                        st.write(f"PAE file contains keys: {list(pae_data.keys())}")
-                                        if 'predicted_aligned_error' in pae_data:
-                                            pae_matrix_temp = pae_data['predicted_aligned_error']
-                                            st.write(f"PAE matrix shape: {pae_matrix_temp.shape}")
-                                            
-                                            # Store the first valid PAE matrix we find
-                                            if not found_usable_pae:
-                                                pae_matrix = pae_matrix_temp
-                                                found_usable_pae = True
-                                                st.write("✅ Using this PAE matrix for visualization")
-                                        else:
-                                            st.warning(f"PAE file doesn't contain 'predicted_aligned_error' key")
-                                except Exception as e:
-                                    st.error(f"Error reading PAE file: {str(e)}")
+                        # If we have execution time directly
+                        if 'execution_time_seconds' in pred_data:
+                            seconds = pred_data['execution_time_seconds']
+                            hours = seconds // 3600
+                            minutes = (seconds % 3600) // 60
+                            secs = seconds % 60
+                            duration_str = f"{hours:02d}:{minutes:02d}:{secs:02d}"
+                            st.write(f"Prediction Time: {duration_str}")
                         else:
-                            st.warning("No PAE files found in any location")
-                        
-                        # Show confidence data
-                        st.write("\n### Confidence Data Contents")
-                        if confidence_data:
-                            st.write("Keys in confidence data:", list(confidence_data.keys()))
-                            keys_to_check = ['pae', 'predicted_aligned_error']
-                            found_key = None
-                            for key in keys_to_check:
-                                if key in confidence_data:
-                                    found_key = key
-                                    pae_array = np.array(confidence_data[key])
-                                    st.write(f"PAE data found in key '{key}'")
-                                    st.write(f"Shape: {pae_array.shape}")
-                                    break
-                            
-                            if not found_key:
-                                st.warning("No PAE data found in confidence data")
-                        else:
-                            st.error("No confidence data loaded")
+                            # For now, just show the timestamp
+                            # In a real implementation, you'd calculate the duration from start/end timestamps
+                            st.write(f"Prediction Time: {timestamp}")
+                    except Exception as e:
+                        # Fallback to raw timestamp
+                        st.write(f"Prediction Time: {pred_data.get('timestamp', 'N/A')}")
+                    
+                    # Download button
+                    st.download_button(
+                        f"Download {method} Structure",
+                        cif_content,
+                        file_name=f"{design_name}_{method}.cif",
+                        mime="chemical/x-cif"
+                    )
 
-                    # Use the PAE data we found (if any)
-                    if found_usable_pae and pae_matrix is not None:
-                        st.success(f"Using PAE data from file: shape {pae_matrix.shape}")
-                        pae_plot = create_pae_plot(pae_matrix)
-                        if pae_plot is not None:
-                            st.image(pae_plot, use_container_width=True)
-                        else:
-                            st.error("Failed to generate PAE plot from data")
-                    # If no PAE file was found, check confidence data
-                    elif confidence_data:
-                        # Try different possible keys for PAE data
-                        keys_to_check = ['pae', 'predicted_aligned_error']
-                        for key in keys_to_check:
-                            if key in confidence_data:
-                                pae_data = np.array(confidence_data[key])
-                                st.success(f"Using PAE data from confidence file (key: {key})")
-                                
-                                pae_plot = create_pae_plot(pae_data)
-                                if pae_plot is not None:
-                                    st.image(pae_plot, use_container_width=True)
-                                    break
-                                else:
-                                    st.error("Failed to generate PAE plot")
-                        else:  # This else belongs to the for loop (executes if no break occurred)
-                            st.warning("No PAE data found in confidence data")
-                    else:
-                        st.warning("No PAE data available.")
-                        st.info(f"""To generate PAE data for this design:
-                        
-1. When running through the web app:
-   - The PAE matrix is now automatically requested with `--write_full_pae`
-   - Re-run the prediction for {design_name} to generate fresh PAE data
-
-2. If running Boltz locally:
-   ```bash
-   boltz predict {design_name}.yaml --write_full_pae --out_dir output/boltz_{design_name}
-   ```
-   """)
-
-        else:
-            st.warning("No predictions available for this design")
-        
-        # Comparison section (only if multiple methods)
-        if len(methods) > 1:
-            st.subheader("Structure Comparison")
-            st.info("Select two methods to compare their structures and calculate RMSD")
-            
-            # Structure selection for comparison
-            comparison_col1, comparison_col2 = st.columns(2)
-            with comparison_col1:
-                method1 = st.selectbox("First Structure", list(methods.keys()), key=f"comp1_{design_name}")
-            with comparison_col2:
-                method2 = st.selectbox("Second Structure", list(methods.keys()), key=f"comp2_{design_name}")
-            
-            if method1 != method2:
-                # Get structures
-                cif1 = methods[method1]['cif_content']
-                cif1_str = cif1.decode() if isinstance(cif1, bytes) else cif1
+            # If we have two different methods, show a comparison tab
+            if len(methods) > 1:
+                st.header("Structure Comparison")
                 
+                # Get the methods
+                method_names = list(methods.keys())
+                method1 = method_names[0]
+                method2 = method_names[1]
+                
+                # Get CIF content
+                cif1 = methods[method1]['cif_content']
                 cif2 = methods[method2]['cif_content']
+                
+                # Convert bytes to string if needed
+                cif1_str = cif1.decode() if isinstance(cif1, bytes) else cif1
                 cif2_str = cif2.decode() if isinstance(cif2, bytes) else cif2
                 
-                # Align and combine structures for comparison
+                # Create combined visualization
                 try:
                     combined_cif, rmsd = align_and_combine_structures(cif1_str, cif2_str)
-                    st.success(f"RMSD between {method1} and {method2}: {rmsd:.2f} Å")
+                    
+                    # Show RMSD
+                    st.write(f"Root Mean Square Deviation (RMSD): {rmsd:.2f} Å")
+                    
+                    # Display combined structure
+                    st.subheader(f"Aligned Structures: {method1} (A chains) vs {method2} (B chains)")
                     
                     # Write to temp file for visualization
                     with tempfile.NamedTemporaryFile(suffix='.cif', mode='w+', delete=False) as tmp:
                         tmp.write(combined_cif)
                         tmp_path = tmp.name
                     
-                    # Display combined structure with color coding
-                    st.write(f"""
-                    **Structure Colors:**
-                    - {method1}: Target in green ribbon, binder in green stick
-                    - {method2}: Target in blue ribbon, binder in blue stick
-                    
-                    Use the visibility controls in Mol* to show/hide individual chains.
-                    """)
-                    st_molstar(tmp_path, key=f"molstar_comp_{design_name}_{method1}_{method2}")
-                    
+                    st_molstar(tmp_path, key=f"molstar_comparison_{design_name}")
                 except Exception as e:
-                    st.error(f"Error comparing structures: {str(e)}")
-            else:
-                st.warning("Please select different methods to compare")
+                    st.error(f"Failed to align structures: {str(e)}")
+        else:
+            st.warning("No predictions found for this design")
+
+    # Replace the dedicated PAE visualization section with a more informative section
+    st.header("About PAE Visualization")
+    with st.expander("What is PAE (Predicted Aligned Error)?"):
+        st.write("""
+        Predicted Aligned Error (PAE) is a confidence metric that estimates the expected distance error 
+        between each pair of residues in the predicted structure.
+        
+        - **Lower values (dark purple)** indicate higher confidence in the relative position of the residues.
+        - **Higher values (yellow/green)** indicate lower confidence.
+        
+        PAE is particularly useful for identifying:
+        - Flexible regions within the protein
+        - Domain boundaries
+        - Overall confidence in the predicted structure
+        
+        A good prediction typically shows distinct blocks of dark purple along the diagonal, 
+        representing well-structured domains.
+        """)
 
 if __name__ == "__main__":
-    results_dashboard() 
+    results_dashboard()
+    
+                    

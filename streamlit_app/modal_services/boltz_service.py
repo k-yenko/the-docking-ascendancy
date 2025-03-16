@@ -407,7 +407,24 @@ class BoltzPredictor:
                     pae_file_path = confidence_dir / f"pae_{design_name}_model_0.npz"
                     with open(pae_file_path, 'wb') as f:
                         f.write(result_data['pae_file'])
-                    print(f"✅ Successfully saved PAE file to {pae_file_path}")
+                    
+                    # Add more verification that the file is really saved
+                    file_size = os.path.getsize(pae_file_path)
+                    print(f"✅ Successfully saved PAE file to: {pae_file_path.absolute()}")
+                    print(f"   File size: {file_size} bytes")
+                    
+                    # Verify we can load it and see the keys
+                    try:
+                        with np.load(pae_file_path) as pae_data:
+                            print(f"   PAE file keys: {list(pae_data.keys())}")
+                            if 'pae' in pae_data:
+                                print(f"   PAE matrix shape: {pae_data['pae'].shape}")
+                            elif 'predicted_aligned_error' in pae_data:
+                                print(f"   PAE matrix shape: {pae_data['predicted_aligned_error'].shape}")
+                    except Exception as e:
+                        print(f"⚠️ Warning: Could load the saved PAE file for verification: {str(e)}")
+                else:
+                    print("⚠️ Warning: No PAE file was returned from Boltz")
                 
                 # Return just the CIF content
                 return cif_content

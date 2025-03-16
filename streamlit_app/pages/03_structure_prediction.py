@@ -393,31 +393,6 @@ def structure_prediction_page():
             import traceback
             status_placeholder.error(f"Traceback: {traceback.format_exc()}")
 
-    # After running a prediction and getting back the result:
-    st.subheader("PAE File Status Check")
-    design_name = selected_methods[0]  # Assuming the first method is selected
-    expected_pae_path = f"output/boltz_{design_name}/pae_{design_name}_model_0.npz" 
-
-    if os.path.exists(expected_pae_path):
-        st.success(f"✅ PAE file found at: {expected_pae_path}")
-        try:
-            with np.load(expected_pae_path) as pae_data:
-                st.write(f"PAE file keys: {list(pae_data.keys())}")
-                if 'predicted_aligned_error' in pae_data:
-                    st.write(f"PAE matrix shape: {pae_data['predicted_aligned_error'].shape}")
-        except Exception as e:
-            st.error(f"Error reading PAE file: {str(e)}")
-    else:
-        st.error(f"❌ PAE file not found at: {expected_pae_path}")
-        
-        # Show all files in the output directory
-        output_dir = Path("output")
-        if output_dir.exists():
-            all_files = list(output_dir.glob("**/*.*"))
-            st.write(f"Found {len(all_files)} files in output directory:")
-            for file in all_files[:20]:  # Show first 20 files
-                st.write(f"  - {file}")
-
 def monitor_prediction_status(q, status_placeholder, yaml_placeholder):
     """Monitor prediction status messages from the queue"""
     while True:
