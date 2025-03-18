@@ -156,6 +156,10 @@ class Chai1Predictor:
             if not cif_content or len(cif_content) == 0:
                 raise ValueError("Received empty CIF content from Chai-1")
             
+            # After getting results:
+            confidence_dir = Path("output") / f"chai_{design_name}"
+            confidence_dir.mkdir(parents=True, exist_ok=True)
+            
             return cif_content
         
         except Exception as e:

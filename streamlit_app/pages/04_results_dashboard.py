@@ -19,6 +19,7 @@ from streamlit_app.utils.structure_metrics import (
 import os
 from streamlit_app.utils.dev_config import USE_FALLBACK_PAE, FALLBACK_PAE_PATH
 from io import BytesIO
+import json
 
 # Try importing matplotlib, but don't fail if not available
 try:
@@ -491,6 +492,11 @@ def results_dashboard():
                     with tempfile.NamedTemporaryFile(suffix='.cif', mode='w+', delete=False) as tmp:
                         tmp.write(cif_str)
                         tmp_path = tmp.name
+                        
+                        # Add debug information to the expanded debug section
+                        if 'debug_temp_files' not in st.session_state:
+                            st.session_state.debug_temp_files = []
+                        st.session_state.debug_temp_files.append(tmp_path)
                     
                     # Display structure
                     st_molstar(tmp_path, key=f"molstar_{design_name}_{method}")
@@ -585,6 +591,114 @@ def results_dashboard():
         representing well-structured domains.
         """)
 
+    # Add a temp file debug expander at the bottom
+    with st.expander("Debug: Temporary Files", expanded=False):
+        st.write("Temporary directory: ", tempfile.gettempdir())
+        if 'debug_temp_files' in st.session_state and st.session_state.debug_temp_files:
+            st.write("Temporary files created in this session:")
+            for i, temp_file in enumerate(st.session_state.debug_temp_files):
+                st.write(f"{i+1}. {temp_file}")
+                
+                # Add a button to view file content
+                if st.button(f"View file {i+1}", key=f"view_temp_{i}"):
+                    try:
+                        with open(temp_file, 'r') as f:
+                            file_content = f.read()
+                            st.text_area("File content (first 1000 chars)", file_content[:1000], height=200)
+                    except Exception as e:
+                        st.error(f"Error reading file: {str(e)}")
+                        
+                # Add button to delete the file
+                if st.button(f"Delete file {i+1}", key=f"delete_temp_{i}"):
+                    try:
+                        os.unlink(temp_file)
+                        st.success(f"Deleted {temp_file}")
+                        # Remove from list
+                        st.session_state.debug_temp_files.pop(i)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error deleting file: {str(e)}")
+        else:
+            st.write("No temporary files tracked in this session yet.")
+            
+        # Add a button to clean up all temporary files
+        if 'debug_temp_files' in st.session_state and st.session_state.debug_temp_files:
+            if st.button("Clean up all temporary files"):
+                for temp_file in st.session_state.debug_temp_files:
+                    try:
+                        os.unlink(temp_file)
+                    except:
+                        pass
+                st.session_state.debug_temp_files = []
+                st.success("All tracked temporary files have been deleted")
+                st.rerun()
+                
+    # Add a new section to display Boltz output directories
+    with st.expander("Debug: Boltz Output Directories", expanded=False):
+        st.subheader("Boltz Prediction Output Files")
+        
+        if os.path.exists("output"):
+            boltz_dirs = [d for d in os.listdir("output") if d.startswith("boltz_") and os.path.isdir(os.path.join("output", d))]
+            
+            if boltz_dirs:
+                st.write(f"Found {len(boltz_dirs)} Boltz output directories:")
+                
+                for i, boltz_dir in enumerate(boltz_dirs):
+                    with st.container():
+                        st.write(f"**{i+1}. {boltz_dir}**")
+                        dir_path = os.path.join("output", boltz_dir)
+                        
+                        # List files in the directory
+                        files = os.listdir(dir_path)
+                        st.write(f"Files in directory: {', '.join(files)}")
+                        
+                        # Look for PAE files specifically
+                        pae_files = [f for f in files if f.startswith("pae_") and f.endswith(".npz")]
+                        if pae_files:
+                            st.write("✅ Found PAE files:")
+                            for pae_file in pae_files:
+                                pae_path = os.path.join(dir_path, pae_file)
+                                st.write(f"  - {pae_file} ({os.path.getsize(pae_path)} bytes)")
+                                
+                                # Add option to view PAE metadata
+                                if st.button(f"View PAE metadata for {pae_file}", key=f"pae_meta_{i}_{pae_file}"):
+                                    try:
+                                        with np.load(os.path.join(dir_path, pae_file)) as data:
+                                            st.write(f"Keys in file: {list(data.keys())}")
+                                            for key in data.keys():
+                                                st.write(f"Shape of '{key}': {data[key].shape}")
+                                                if data[key].size < 100:  # Only show small arrays
+                                                    st.write(f"Data sample: {data[key]}")
+                                    except Exception as e:
+                                        st.error(f"Error loading PAE file: {str(e)}")
+                        else:
+                            st.write("❌ No PAE files found in this directory")
+                        
+                        # Check confidence.json
+                        conf_path = os.path.join(dir_path, "confidence.json")
+                        if os.path.exists(conf_path):
+                            st.write("✅ Found confidence.json")
+                            if st.button(f"View confidence data for {boltz_dir}", key=f"conf_{i}"):
+                                try:
+                                    with open(conf_path, 'r') as f:
+                                        conf_data = json.load(f)
+                                        st.json(conf_data)
+                                except Exception as e:
+                                    st.error(f"Error loading confidence file: {str(e)}")
+                        else:
+                            st.write("❌ No confidence.json found")
+                        
+                        st.markdown("---")
+            else:
+                st.write("No Boltz output directories found")
+        else:
+            st.write("Output directory does not exist")
+            
+        # Add debugging for the file system paths
+        st.subheader("Filesystem Information")
+        st.write(f"Current working directory: {os.getcwd()}")
+        st.write(f"Absolute path to output dir: {os.path.abspath('output')}")
+                
 if __name__ == "__main__":
     results_dashboard()
     
